@@ -6,12 +6,10 @@ import (
 
 func TestEncryptDecrypt(t *testing.T) {
 	testInput := "Hello World"
-
-	// Test encryption and decryption
-	encrypted := cryptography.Encrypt(testInput)
-	// Test encryption and decryption
 	encrypted := Encrypt(testInput)
 	decrypted := Decrypt(encrypted)
+
+	if decrypted != testInput {
 		t.Errorf("Expected %s, but got %s", testInput, decrypted)
 	}
 	// Ensure encrypted text is different from original
