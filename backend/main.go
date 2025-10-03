@@ -11,6 +11,7 @@ func beaufortCharacter(char, keyChar rune) rune {
 	}
 	return char
 }
+
 func beaufortEncryption(text, key string) string {
 	encrypted := []rune{}
 	keyRunes := []rune(key)
@@ -19,22 +20,17 @@ func beaufortEncryption(text, key string) string {
 	}
 	return string(encrypted)
 }
-func beaufortDecryption(text, key string) string {
-	decrypted := []rune{}
-	keyRunes := []rune(key)
-	for i, char := range text {
-		decrypted = append(decrypted, beaufortCharacter(char, keyRunes[i%len(keyRunes)]))
-	}
-	return string(decrypted)
-}
+
 func encrypt(input string) string {
 	key := "abcdef"
 	return beaufortEncryption(input, key)
 }
+
 func decrypt(input string) string {
 	key := "abcdef"
-	return beaufortDecryption(input, key)
+	return beaufortEncryption(input, key)
 }
+
 func main() {
 	encrypted := encrypt("something")
 	fmt.Println(encrypted)
