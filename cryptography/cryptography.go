@@ -2,15 +2,13 @@ package cryptography
 
 func beaufortCharacter(char, keyChar rune) rune {
 	if char >= 'A' && char <= 'Z' {
-		// Beaufort cipher: result = (key - text) mod 26
 		result := (keyChar - 'A') - (char - 'A')
-		result = ((result % 26) + 26) % 26 // Handle negative results
+		result = ((result % 26) + 26) % 26
 		return 'A' + rune(result)
 	}
 	if char >= 'a' && char <= 'z' {
-		// Beaufort cipher: result = (key - text) mod 26
 		result := (keyChar - 'a') - (char - 'a')
-		result = ((result % 26) + 26) % 26 // Handle negative results
+		result = ((result % 26) + 26) % 26
 		return 'a' + rune(result)
 	}
 	return char
