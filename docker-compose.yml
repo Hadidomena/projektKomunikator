@@ -1,0 +1,46 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "4321:4321"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # This prevents the local node_modules from overwriting the one in the container
+    command: ["pnpm", "run", "dev"]
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ./go-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./go-backend:/app
+    command: ["air"]
+    environment:
+      - DB_HOST=database
+      - DB_PORT=5432
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_NAME=communicator_db
+      - PEPPER=replace-this-with-a-long-random-secret-pepper
+    depends_on:
+      - database
+
+  database:
+    build:
+      context: ./sql-database
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=communicator_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./sql-database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

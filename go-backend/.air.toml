@@ -1,0 +1,21 @@
+# .air.toml
+# Config file for Air - https://github.com/cosmtrek/air
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/main ."
+  bin = "./tmp/main"
+  full_bin = "APP_ENV=dev APP_USER=air ./tmp/main"
+  delay = 1000 # ms
+  include_ext = ["go", "tpl", "tmpl", "html"]
+  exclude_dir = ["assets", "tmp", "vendor"]
+  log = "air.log"
+
+[log]
+  time = true
+
+[misc]
+  # Delete tmp directory on exit
+  clean_on_exit = true
