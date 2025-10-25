@@ -25,7 +25,7 @@ services:
       - DB_USER=user
       - DB_PASSWORD=password
       - DB_NAME=communicator_db
-      - PEPPER=replace-this-with-a-long-random-secret-pepper
+      - PEPPER=cw0OfDCYO6ILZ8r4FsyaEX0GhuFr9wTd1YRzjNhAqXusRprdkobaxPKSJbLt5OV6
     depends_on:
       - database
 
