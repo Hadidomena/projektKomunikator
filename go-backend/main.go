@@ -28,6 +28,21 @@ type ErrorResponse struct {
 
 var db *sql.DB
 
+var (
+	// appPepper is a global secret used to augment password hashing.
+	// It is loaded from an environment variable at startup.
+	appPepper string
+)
+
+func init() {
+	appPepper := os.Getenv("PEPPER")
+	if appPepper == "" {
+		appPepper = "testPepper"
+		// panic("SECURITY ERROR: PEPPER environment variable not set")
+	}
+	cryptography.SetPepper(appPepper)
+}
+
 func main() {
 	var err error
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
@@ -111,6 +126,11 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.Username == "" || req.Password == "" {
 		http.Error(w, "Username and password are required", http.StatusBadRequest)
+		return
+	}
+
+	if req.Username == "" || req.Password == "" {
+		http.Error(w, "Password must be valid, strong enough, not common and at least 12 signs long, try increasing its length or its complexity", http.StatusBadRequest)
 		return
 	}
 

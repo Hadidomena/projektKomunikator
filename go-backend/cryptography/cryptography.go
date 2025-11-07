@@ -5,25 +5,15 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
-	"os"
+	"log"
 	"strings"
 
 	"golang.org/x/crypto/argon2"
 )
 
-var (
-	// appPepper is a global secret used to augment password hashing.
-	// It is loaded from an environment variable at startup.
-	appPepper string
-)
-
-func init() {
-	appPepper = os.Getenv("PEPPER")
-	if appPepper == "" {
-		appPepper = "testPepper"
-		// panic("SECURITY ERROR: PEPPER environment variable not set")
-	}
-}
+// appPepper is a package-level variable to hold the pepper.
+// It's unexported to prevent direct modification from other packages.
+var appPepper string
 
 // params holds the configuration for Argon2.
 type params struct {
@@ -34,9 +24,20 @@ type params struct {
 	keyLength   uint32
 }
 
+// SetPepper initializes the appPepper for the cryptography package.
+func SetPepper(p string) {
+	if p == "" {
+		log.Panic("SECURITY ERROR: PEPPER cannot be empty")
+	}
+	appPepper = p
+}
+
 // HashPassword creates an Argon2id hash of a password.
 // It returns the hash in a format that includes all the parameters needed for verification.
 func HashPassword(password string) (string, error) {
+	if password == "" {
+		return "", fmt.Errorf("password cannot be empty")
+	}
 	// Recommended parameters for Argon2id.
 	// These should be tuned based on your hardware and security requirements.
 	p := &params{
@@ -71,6 +72,9 @@ func HashPassword(password string) (string, error) {
 }
 
 func VerifyPassword(password, encodedHash string) (bool, error) {
+	if password == "" {
+		return false, nil
+	}
 	p, salt, hash, err := decodeHash(encodedHash)
 	if err != nil {
 		return false, fmt.Errorf("failed to decode hash: %w", err)
@@ -121,12 +125,4 @@ func decodeHash(encodedHash string) (p *params, salt, hash []byte, err error) {
 	p.keyLength = uint32(len(hash))
 
 	return p, salt, hash, nil
-}
-
-func Encrypt(input string) string {
-	return input
-}
-
-func Decrypt(input string) string {
-	return input
 }
