@@ -2,3 +2,4 @@ requirements.md
 tmp/
 *.log
 .env
+.astro/
