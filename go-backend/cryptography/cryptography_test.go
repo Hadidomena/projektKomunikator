@@ -102,3 +102,22 @@ func Test_decodeHash(t *testing.T) {
 		t.Errorf("decodeHash() should have failed with invalid base64 hash")
 	}
 }
+
+func TestGenerateE2EEKeys(t *testing.T) {
+	// Test case keys should be generated
+	priv, pub, err := GenerateE2EEKeys()
+	if err != nil {
+		t.Errorf("Failed to generate keys: %v", err)
+	}
+	if priv == "" || pub == "" {
+		t.Errorf("Generated keys should not be empty")
+	}
+	if priv == pub {
+		t.Errorf("Generated keys should not be the same")
+	}
+
+	priv2, pub2, err := GenerateE2EEKeys()
+	if priv2 == priv || pub2 == pub {
+		t.Errorf("Generated keys should not be the same between two generations")
+	}
+}
