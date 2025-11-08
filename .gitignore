@@ -1,1 +1,4 @@
 requirements.md
+tmp/
+*.log
+.env
