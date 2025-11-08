@@ -1,9 +1,9 @@
 package message_utils
 
 func EncryptMessage(plaintext string) (string, error) {
-
+	return plaintext, nil
 }
 
-func DecrypMessaget(ciphertext string) (string, error) {
-
+func DecryptMessage(ciphertext string) (string, error) {
+	return ciphertext, nil
 }
