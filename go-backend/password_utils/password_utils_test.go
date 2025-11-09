@@ -2,6 +2,11 @@ package passwordutils
 
 import "testing"
 
+func init() {
+	// Load common passwords for tests
+	LoadCommonPasswords()
+}
+
 func TestCalculatingPasswordStrength(t *testing.T) {
 	password1 := "1234"
 	password2 := "A1B2./deadline"
@@ -13,13 +18,15 @@ func TestCalculatingPasswordStrength(t *testing.T) {
 
 func TestFindingCommonPassword(t *testing.T) {
 	password := "1234"
-	isCommonPasword(password)
+	if !isCommonPassword(password) {
+		t.Errorf("Password '1234' should be recognized as common")
+	}
 }
 
 func TestTooShortPasword(t *testing.T) {
 	password := "123"
 	if IsViablePassword(password) != 1 {
-		t.Errorf("Password should be too short to passs")
+		t.Errorf("Password should be too short to pass")
 	}
 }
 

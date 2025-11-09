@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/Hadidomena/projektKomunikator/cryptography"
 	passwordutils "github.com/Hadidomena/projektKomunikator/password_utils"
@@ -58,8 +60,19 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Configure connection pool for better concurrency
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(10 * time.Minute)
+
 	if err = db.Ping(); err != nil {
 		log.Fatal(err)
+	}
+
+	// Load common passwords into memory on startup
+	if err := passwordutils.LoadCommonPasswords(); err != nil {
+		log.Printf("Warning: Could not load common passwords: %v", err)
 	}
 
 	http.HandleFunc("/api/texts", textsHandler)
@@ -92,8 +105,18 @@ func textsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = db.Exec("INSERT INTO Texts (content) VALUES ($1)", submission.Content)
+	// Create context with timeout for database operation
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Use context-aware database query
+	_, err = db.ExecContext(ctx, "INSERT INTO Texts (content) VALUES ($1)", submission.Content)
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			http.Error(w, "Request timeout", http.StatusRequestTimeout)
+			log.Printf("Database operation timeout: %v", err)
+			return
+		}
 		http.Error(w, "Failed to insert text into database", http.StatusInternalServerError)
 		log.Printf("Failed to insert text: %v", err)
 		return
@@ -130,27 +153,58 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Password validation is now fast (in-memory check)
 	if passwordutils.IsViablePassword(req.Password) == 0 {
 		http.Error(w, "Password must be valid, strong enough, not common and at least 12 signs long, try increasing its length or its complexity", http.StatusBadRequest)
 		return
 	}
 
-	// Hash the password using the cryptography package
-	hashedPassword, err := cryptography.HashPassword(req.Password)
-	if err != nil {
-		log.Printf("Error hashing password: %v", err)
-		http.Error(w, "Failed to process registration", http.StatusInternalServerError)
+	// Create context with timeout for potentially long operations
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Use a channel to handle the password hashing asynchronously
+	type hashResult struct {
+		hash string
+		err  error
+	}
+	hashChan := make(chan hashResult, 1)
+
+	go func() {
+		hashedPassword, err := cryptography.HashPassword(req.Password)
+		hashChan <- hashResult{hash: hashedPassword, err: err}
+	}()
+
+	var hashedPassword string
+	select {
+	case <-ctx.Done():
+		http.Error(w, "Request timeout", http.StatusRequestTimeout)
+		log.Printf("Password hashing timeout")
 		return
+	case result := <-hashChan:
+		if result.err != nil {
+			log.Printf("Error hashing password: %v", result.err)
+			http.Error(w, "Failed to process registration", http.StatusInternalServerError)
+			return
+		}
+		hashedPassword = result.hash
 	}
 
-	// Insert the new user into the database
-	_, err = db.Exec("INSERT INTO Users (username, password_hash) VALUES ($1, $2)", req.Username, hashedPassword)
+	// Insert the new user into the database with context
+	_, err := db.ExecContext(ctx, "INSERT INTO Users (username, password_hash) VALUES ($1, $2)", req.Username, hashedPassword)
 	if err != nil {
 		// Check if the error is a unique constraint violation (username already exists)
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict) // 409 Conflict
 			json.NewEncoder(w).Encode(ErrorResponse{Message: "Username already exists"})
+			return
+		}
+
+		// Check for context timeout
+		if ctx.Err() == context.DeadlineExceeded {
+			http.Error(w, "Request timeout", http.StatusRequestTimeout)
+			log.Printf("Database operation timeout: %v", err)
 			return
 		}
 
