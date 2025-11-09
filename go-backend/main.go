@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/Hadidomena/projektKomunikator/cryptography"
+	passwordutils "github.com/Hadidomena/projektKomunikator/password_utils"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 )
@@ -129,7 +130,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Username == "" || req.Password == "" {
+	if passwordutils.IsViablePassword(req.Password) == 0 {
 		http.Error(w, "Password must be valid, strong enough, not common and at least 12 signs long, try increasing its length or its complexity", http.StatusBadRequest)
 		return
 	}

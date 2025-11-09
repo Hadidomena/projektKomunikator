@@ -77,5 +77,6 @@ func IsViablePassword(password string) int {
 	if calculatePasswordStrength(password) < 400 {
 		return 3
 	}
+
 	return 0
 }
