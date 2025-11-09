@@ -18,7 +18,8 @@ services:
       - "8080:8080"
     volumes:
       - ./go-backend:/app
-    command: ["air"]
+      - /app/tmp
+    command: ["air", "-c", ".air.toml"]
     environment:
       - DB_HOST=database
       - DB_PORT=5432

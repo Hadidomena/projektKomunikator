@@ -12,8 +12,8 @@ RUN go install github.com/air-verse/air@latest
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy the rest of the application's source code.
-COPY . .
+# Copy the .air.toml configuration file
+COPY .air.toml ./
 
 # The command to run the application will be provided by docker-compose.
-CMD ["air"]
+CMD ["air", "-c", ".air.toml"]
