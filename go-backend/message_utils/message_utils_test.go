@@ -87,5 +87,3 @@ func TestRatchetingDerivationProducesDifferentKeys(t *testing.T) {
 		t.Errorf("decrypted second message mismatch: got %q want %q", d2, m2)
 	}
 }
-
-func 
