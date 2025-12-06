@@ -11,6 +11,15 @@ import (
 	"github.com/jordan-wright/email"
 )
 
+var (
+	// default SMTP configuration (can be overridden in tests)
+	smtpAddr      = "smtp.example.com:587"
+	smtpHost      = "smtp.example.com"
+	smtpUser      = "smtp-user"
+	smtpPass      = "smtp-pass"
+	tlsServerName = "smtp.example.com"
+)
+
 func secureInt(max int64) (int64, error) {
 	if max <= 0 {
 		return 0, nil
@@ -21,22 +30,26 @@ func secureInt(max int64) (int64, error) {
 	}
 	return n.Int64(), nil
 }
+
 func VerifyEmail(email string) bool {
 	_, err := mail.ParseAddress(email)
 	return err == nil
 }
 
-func SendEmail(recipient, template string) error {
+var sendFunc = func(e *email.Email) error {
+	auth := smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
+	return e.SendWithTLS(smtpAddr, auth, &tls.Config{InsecureSkipVerify: false, ServerName: tlsServerName})
+}
+
+func SendEmail(recipient []string, template string) error {
 	e := email.NewEmail()
 	e.From = "Sender Name <sender@example.com>"
-	e.To = []string{recipient}
+	e.To = recipient
 	e.Subject = "Test"
-	e.Text = []byte("Hello from Go")
+	e.Text = []byte(template)
 
-	auth := smtp.PlainAuth("", "smtp-user", "smtp-pass", "smtp.example.com")
-	err := e.SendWithTLS("smtp.example.com:587", auth, &tls.Config{InsecureSkipVerify: false, ServerName: "smtp.example.com"})
-	if err != nil {
-		return fmt.Errorf("failed to create cipher block: %w", err)
+	if err := sendFunc(e); err != nil {
+		return fmt.Errorf("failed to send email: %w", err)
 	}
 	return nil
 }
