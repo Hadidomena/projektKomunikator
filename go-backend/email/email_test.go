@@ -33,3 +33,21 @@ func TestCodeGeneration(t *testing.T) {
 		t.Errorf("First code %s, and second code %s should not be the same", code, secondCode)
 	}
 }
+
+func TestIntGenerator(t *testing.T) {
+	validMax, invalidMax := int64(100), int64(-10)
+	i, err := secureInt(validMax)
+	if err != nil {
+		t.Fatalf("Error during Int generation: %v", err)
+	}
+	if i < 0 || i > validMax {
+		t.Errorf("reached invalid i from secureInt: %d", i)
+	}
+	i, err = secureInt(invalidMax)
+	if err != nil {
+		t.Fatalf("Error during Int generation: %v", err)
+	}
+	if i != 0 {
+		t.Errorf("Invalid Max returned something different to 0: %d", i)
+	}
+}
