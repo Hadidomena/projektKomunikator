@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"math/big"
+	"net/mail"
 	"net/smtp"
 
 	"github.com/jordan-wright/email"
@@ -21,13 +22,14 @@ func secureInt(max int64) (int64, error) {
 	return n.Int64(), nil
 }
 func VerifyEmail(email string) bool {
-	return true
+	_, err := mail.ParseAddress(email)
+	return err == nil
 }
 
 func SendEmail(recipient, template string) error {
 	e := email.NewEmail()
 	e.From = "Sender Name <sender@example.com>"
-	e.To = []string{"recipient@example.com"}
+	e.To = []string{recipient}
 	e.Subject = "Test"
 	e.Text = []byte("Hello from Go")
 
