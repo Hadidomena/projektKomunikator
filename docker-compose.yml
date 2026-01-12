@@ -6,7 +6,7 @@ services:
       - "4321:4321"
     volumes:
       - ./frontend:/app
-      - /app/node_modules # This prevents the local node_modules from overwriting the one in the container
+      - /app/node_modules
     command: ["pnpm", "run", "dev"]
     depends_on:
       - backend
