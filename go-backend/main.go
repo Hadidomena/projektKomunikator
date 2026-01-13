@@ -180,8 +180,8 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if email already exists
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
+	ctx2, cancel2 := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel2()
 
 	emailExists, err := validation.CheckEmailExists(db, req.Email)
 	if err != nil {
@@ -359,7 +359,16 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify password
-	if !cryptography.CheckPasswordHash(req.Password, storedHash) {
+	passwordValid, err := cryptography.VerifyPassword(req.Password, storedHash)
+	if err != nil {
+		log.Printf("Error verifying password: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
+		return
+	}
+
+	if !passwordValid {
 		// Invalid password - record failed attempt
 		ip := r.RemoteAddr
 		isLocked, lockDuration, isBlocked, _ := loginTracker.RecordFailedAttempt(email, ip)
