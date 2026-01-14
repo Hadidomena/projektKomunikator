@@ -16,6 +16,7 @@ jobs:
           - '.'
           - './cryptography'
           - './email'
+          - './jwt_auth'
           - './message_utils'
           - './password_utils'
           - './validation'

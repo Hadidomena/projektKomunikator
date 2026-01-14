@@ -27,6 +27,7 @@ services:
       - DB_PASSWORD=password
       - DB_NAME=communicator_db
       - PEPPER=cw0OfDCYO6ILZ8r4FsyaEX0GhuFr9wTd1YRzjNhAqXusRprdkobaxPKSJbLt5OV6
+      - JWT_SECRET=super-secret-jwt-key-change-this-in-production-min-32-chars
     depends_on:
       - database
 

@@ -3,11 +3,14 @@ Projekt Komunikator
 
 Short description
 - **Project**: A small end-to-end encrypted messaging prototype with a Go backend and Astro frontend.
+- **Authentication**: JWT-based authentication with secure token management (see [JWT_AUTHENTICATION.md](JWT_AUTHENTICATION.md))
 
 Where to look
 - **Backend crypto**: `go-backend/cryptography`
 - **Message encryption**: `go-backend/message_utils`
 - **Password checks**: `go-backend/password_utils`
+- **JWT authentication**: `go-backend/jwt_auth`
+- **Input validation**: `go-backend/validation`
 
 Implemented algorithms
 - **Argon2id (password hashing)**: used for secure, memory-hard password hashing (`go-backend/cryptography/cryptography.go`).

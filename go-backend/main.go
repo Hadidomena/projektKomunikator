@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Hadidomena/projektKomunikator/cryptography"
+	jwt_auth "github.com/Hadidomena/projektKomunikator/jwt_auth"
 	passwordutils "github.com/Hadidomena/projektKomunikator/password_utils"
 	"github.com/Hadidomena/projektKomunikator/validation"
 	"github.com/lib/pq"
@@ -99,20 +100,80 @@ func main() {
 		log.Printf("Warning: Could not load common passwords: %v", err)
 	}
 
+	// Initialize JWT
+	if err := jwt_auth.InitJWT(); err != nil {
+		log.Fatalf("Failed to initialize JWT: %v", err)
+	}
+
 	// Initialize login attempt tracker
 	loginTracker = validation.NewLoginAttemptTracker()
 
 	http.HandleFunc("/api/texts", textsHandler)
 	http.HandleFunc("/api/register", registerHandler)
 	http.HandleFunc("/api/login", loginHandler)
-	http.HandleFunc("/api/messages/send", sendMessageHandler)
-	http.HandleFunc("/api/messages/inbox", getInboxHandler)
-	http.HandleFunc("/api/messages/sent", getSentMessagesHandler)
-	http.HandleFunc("/api/messages/mark-read", markMessageAsReadHandler)
-	http.HandleFunc("/api/messages/delete", deleteMessageHandler)
+
+	// Protected endpoints with JWT authentication
+	http.HandleFunc("/api/messages/send", authMiddleware(sendMessageHandler))
+	http.HandleFunc("/api/messages/inbox", authMiddleware(getInboxHandler))
+	http.HandleFunc("/api/messages/sent", authMiddleware(getSentMessagesHandler))
+	http.HandleFunc("/api/messages/mark-read", authMiddleware(markMessageAsReadHandler))
+	http.HandleFunc("/api/messages/delete", authMiddleware(deleteMessageHandler))
 
 	fmt.Println("Go backend server starting on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+// authMiddleware is a middleware that validates JWT tokens
+func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Extract token from Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Authorization header required"})
+			return
+		}
+
+		// Expected format: "Bearer <token>"
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid authorization header format"})
+			return
+		}
+
+		tokenString := parts[1]
+		claims, err := jwt_auth.ValidateToken(tokenString)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid or expired token"})
+			return
+		}
+
+		// Add user info to request context
+		ctx := context.WithValue(r.Context(), "userID", claims.UserID)
+		ctx = context.WithValue(ctx, "userEmail", claims.Email)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+// getUserFromContext extracts user information from request context
+func getUserFromContext(r *http.Request) (int, string, error) {
+	userID, ok := r.Context().Value("userID").(int)
+	if !ok {
+		return 0, "", fmt.Errorf("user ID not found in context")
+	}
+
+	userEmail, ok := r.Context().Value("userEmail").(string)
+	if !ok {
+		return 0, "", fmt.Errorf("user email not found in context")
+	}
+
+	return userID, userEmail, nil
 }
 
 func textsHandler(w http.ResponseWriter, r *http.Request) {
@@ -421,13 +482,26 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	// Successful login - reset failed attempts
 	loginTracker.ResetAttempts(email)
 
+	// Generate JWT token
+	token, err := jwt_auth.GenerateToken(userID, email)
+	if err != nil {
+		log.Printf("Failed to generate JWT token: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to complete login"})
+		return
+	}
+
 	log.Printf("Successful login for user: %s", email)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message": "Login successful",
-		"user_id": userID,
+		"message":    "Login successful",
+		"token":      token,
+		"user_id":    userID,
+		"email":      email,
+		"expires_in": jwt_auth.GetTokenExpiration().Seconds(),
 	})
 }
 
@@ -447,10 +521,9 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Get sender_id from JWT token/session
-	// For now, we'll expect it in the request or use a header
-	senderEmail := r.Header.Get("X-User-Email")
-	if senderEmail == "" {
+	// Get authenticated user from JWT context
+	senderID, _, err := getUserFromContext(r)
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
@@ -490,17 +563,6 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-
-	// Get sender ID
-	var senderID int
-	err := db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(senderEmail)).Scan(&senderID)
-	if err != nil {
-		log.Printf("Failed to get sender ID: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
-		return
-	}
 
 	// Get receiver ID
 	var receiverID int
@@ -556,8 +618,9 @@ func getInboxHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userEmail := r.Header.Get("X-User-Email")
-	if userEmail == "" {
+	// Get authenticated user from JWT context
+	userID, userEmail, err := getUserFromContext(r)
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
@@ -566,16 +629,6 @@ func getInboxHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-
-	// Get user ID
-	var userID int
-	err := db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(userEmail)).Scan(&userID)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
-		return
-	}
 
 	// Get messages
 	rows, err := db.QueryContext(ctx, `
@@ -629,8 +682,9 @@ func getSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userEmail := r.Header.Get("X-User-Email")
-	if userEmail == "" {
+	// Get authenticated user from JWT context
+	userID, userEmail, err := getUserFromContext(r)
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
@@ -639,16 +693,6 @@ func getSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-
-	// Get user ID
-	var userID int
-	err := db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(userEmail)).Scan(&userID)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
-		return
-	}
 
 	// Get sent messages
 	rows, err := db.QueryContext(ctx, `
@@ -702,8 +746,9 @@ func markMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userEmail := r.Header.Get("X-User-Email")
-	if userEmail == "" {
+	// Get authenticated user from JWT context
+	userID, _, err := getUserFromContext(r)
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
@@ -729,16 +774,6 @@ func markMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-
-	// Get user ID
-	var userID int
-	err := db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(userEmail)).Scan(&userID)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
-		return
-	}
 
 	// Mark message as read (only if user is the receiver)
 	result, err := db.ExecContext(ctx,
@@ -783,8 +818,9 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userEmail := r.Header.Get("X-User-Email")
-	if userEmail == "" {
+	// Get authenticated user from JWT context
+	userID, _, err := getUserFromContext(r)
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
@@ -810,16 +846,6 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-
-	// Get user ID
-	var userID int
-	err := db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(userEmail)).Scan(&userID)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
-		return
-	}
 
 	// Soft delete message (mark as deleted for the user)
 	result, err := db.ExecContext(ctx, `
