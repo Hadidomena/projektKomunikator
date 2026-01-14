@@ -33,6 +33,21 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+type SendMessageRequest struct {
+	ReceiverEmail string `json:"receiver_email"`
+	Content       string `json:"content"`
+}
+
+type MessageResponse struct {
+	ID            int        `json:"id"`
+	SenderEmail   string     `json:"sender_email"`
+	ReceiverEmail string     `json:"receiver_email"`
+	Content       string     `json:"content"`
+	IsRead        bool       `json:"is_read"`
+	CreatedAt     time.Time  `json:"created_at"`
+	ReadAt        *time.Time `json:"read_at,omitempty"`
+}
+
 type ErrorResponse struct {
 	Message string `json:"message"`
 }
@@ -90,6 +105,11 @@ func main() {
 	http.HandleFunc("/api/texts", textsHandler)
 	http.HandleFunc("/api/register", registerHandler)
 	http.HandleFunc("/api/login", loginHandler)
+	http.HandleFunc("/api/messages/send", sendMessageHandler)
+	http.HandleFunc("/api/messages/inbox", getInboxHandler)
+	http.HandleFunc("/api/messages/sent", getSentMessagesHandler)
+	http.HandleFunc("/api/messages/mark-read", markMessageAsReadHandler)
+	http.HandleFunc("/api/messages/delete", deleteMessageHandler)
 
 	fmt.Println("Go backend server starting on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -208,7 +228,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create context with timeout for potentially long operations
-	ctx2, cancel2 := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx2, cancel2 = context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel2()
 
 	// Use a channel to handle the password hashing asynchronously
@@ -408,5 +428,425 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"message": "Login successful",
 		"user_id": userID,
+	})
+}
+
+// sendMessageHandler handles sending messages between users
+func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// TODO: Get sender_id from JWT token/session
+	// For now, we'll expect it in the request or use a header
+	senderEmail := r.Header.Get("X-User-Email")
+	if senderEmail == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	var req SendMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		return
+	}
+
+	// Validate input
+	if req.ReceiverEmail == "" || req.Content == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		return
+	}
+
+	if !validation.ValidateEmail(req.ReceiverEmail) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		return
+	}
+
+	// Limit message length
+	if len(req.Content) > 10000 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message too long"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Get sender ID
+	var senderID int
+	err := db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(senderEmail)).Scan(&senderID)
+	if err != nil {
+		log.Printf("Failed to get sender ID: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
+		return
+	}
+
+	// Get receiver ID
+	var receiverID int
+	err = db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(req.ReceiverEmail)).Scan(&receiverID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Receiver not found"})
+			return
+		}
+		log.Printf("Failed to get receiver ID: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to send message"})
+		return
+	}
+
+	// Insert message
+	var messageID int
+	err = db.QueryRowContext(ctx,
+		"INSERT INTO Messages (sender_id, receiver_id, content) VALUES ($1, $2, $3) RETURNING id",
+		senderID, receiverID, req.Content).Scan(&messageID)
+	if err != nil {
+		log.Printf("Failed to insert message: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to send message"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":    "Message sent successfully",
+		"message_id": messageID,
+	})
+}
+
+// getInboxHandler retrieves inbox messages for the authenticated user
+func getInboxHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userEmail := r.Header.Get("X-User-Email")
+	if userEmail == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Get user ID
+	var userID int
+	err := db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(userEmail)).Scan(&userID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
+		return
+	}
+
+	// Get messages
+	rows, err := db.QueryContext(ctx, `
+		SELECT m.id, u.email, m.content, m.is_read, m.created_at, m.read_at
+		FROM Messages m
+		JOIN Users u ON m.sender_id = u.id
+		WHERE m.receiver_id = $1 AND m.is_deleted_by_receiver = FALSE
+		ORDER BY m.created_at DESC
+	`, userID)
+	if err != nil {
+		log.Printf("Failed to get messages: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve messages"})
+		return
+	}
+	defer rows.Close()
+
+	messages := []MessageResponse{}
+	for rows.Next() {
+		var msg MessageResponse
+		var senderEmail string
+		err := rows.Scan(&msg.ID, &senderEmail, &msg.Content, &msg.IsRead, &msg.CreatedAt, &msg.ReadAt)
+		if err != nil {
+			log.Printf("Failed to scan message: %v", err)
+			continue
+		}
+		msg.SenderEmail = senderEmail
+		msg.ReceiverEmail = userEmail
+		messages = append(messages, msg)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(messages)
+}
+
+// getSentMessagesHandler retrieves sent messages for the authenticated user
+func getSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userEmail := r.Header.Get("X-User-Email")
+	if userEmail == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Get user ID
+	var userID int
+	err := db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(userEmail)).Scan(&userID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
+		return
+	}
+
+	// Get sent messages
+	rows, err := db.QueryContext(ctx, `
+		SELECT m.id, u.email, m.content, m.is_read, m.created_at, m.read_at
+		FROM Messages m
+		JOIN Users u ON m.receiver_id = u.id
+		WHERE m.sender_id = $1 AND m.is_deleted_by_sender = FALSE
+		ORDER BY m.created_at DESC
+	`, userID)
+	if err != nil {
+		log.Printf("Failed to get sent messages: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve messages"})
+		return
+	}
+	defer rows.Close()
+
+	messages := []MessageResponse{}
+	for rows.Next() {
+		var msg MessageResponse
+		var receiverEmail string
+		err := rows.Scan(&msg.ID, &receiverEmail, &msg.Content, &msg.IsRead, &msg.CreatedAt, &msg.ReadAt)
+		if err != nil {
+			log.Printf("Failed to scan message: %v", err)
+			continue
+		}
+		msg.SenderEmail = userEmail
+		msg.ReceiverEmail = receiverEmail
+		messages = append(messages, msg)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(messages)
+}
+
+// markMessageAsReadHandler marks a message as read
+func markMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "PUT, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPut {
+		http.Error(w, "Only PUT method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userEmail := r.Header.Get("X-User-Email")
+	if userEmail == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	var req struct {
+		MessageID int `json:"message_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		return
+	}
+
+	if req.MessageID <= 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Get user ID
+	var userID int
+	err := db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(userEmail)).Scan(&userID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
+		return
+	}
+
+	// Mark message as read (only if user is the receiver)
+	result, err := db.ExecContext(ctx,
+		"UPDATE Messages SET is_read = TRUE, read_at = NOW() WHERE id = $1 AND receiver_id = $2 AND is_read = FALSE",
+		req.MessageID, userID)
+	if err != nil {
+		log.Printf("Failed to mark message as read: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to mark message as read"})
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message not found or already read"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Message marked as read",
+	})
+}
+
+// deleteMessageHandler soft-deletes a message
+func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Only DELETE method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userEmail := r.Header.Get("X-User-Email")
+	if userEmail == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	var req struct {
+		MessageID int `json:"message_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		return
+	}
+
+	if req.MessageID <= 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Get user ID
+	var userID int
+	err := db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(userEmail)).Scan(&userID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
+		return
+	}
+
+	// Soft delete message (mark as deleted for the user)
+	result, err := db.ExecContext(ctx, `
+		UPDATE Messages 
+		SET is_deleted_by_sender = CASE WHEN sender_id = $2 THEN TRUE ELSE is_deleted_by_sender END,
+		    is_deleted_by_receiver = CASE WHEN receiver_id = $2 THEN TRUE ELSE is_deleted_by_receiver END
+		WHERE id = $1 AND (sender_id = $2 OR receiver_id = $2)
+	`, req.MessageID, userID)
+	if err != nil {
+		log.Printf("Failed to delete message: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to delete message"})
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message not found"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Message deleted successfully",
 	})
 }

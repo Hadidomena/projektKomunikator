@@ -11,7 +11,33 @@ CREATE TABLE Users (
     locked_until TIMESTAMP WITH TIME ZONE
 );
 
--- Create the Texts table with a foreign key to the Users table
+-- Create the Messages table with sender and receiver
+CREATE TABLE Messages (
+    id SERIAL PRIMARY KEY,
+    sender_id INTEGER NOT NULL,
+    receiver_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    is_deleted_by_sender BOOLEAN DEFAULT FALSE,
+    is_deleted_by_receiver BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    read_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT fk_sender
+        FOREIGN KEY(sender_id)
+        REFERENCES Users(id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_receiver
+        FOREIGN KEY(receiver_id)
+        REFERENCES Users(id)
+        ON DELETE CASCADE
+);
+
+-- Create index for faster message queries
+CREATE INDEX idx_messages_receiver ON Messages(receiver_id) WHERE is_deleted_by_receiver = FALSE;
+CREATE INDEX idx_messages_sender ON Messages(sender_id) WHERE is_deleted_by_sender = FALSE;
+CREATE INDEX idx_messages_unread ON Messages(receiver_id, is_read) WHERE is_deleted_by_receiver = FALSE;
+
+-- Keep the Texts table for backward compatibility (can be removed later)
 CREATE TABLE Texts (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL,
