@@ -4,13 +4,23 @@ Projekt Komunikator
 Short description
 - **Project**: A small end-to-end encrypted messaging prototype with a Go backend and Astro frontend.
 - **Authentication**: JWT-based authentication with secure token management (see [JWT_AUTHENTICATION.md](JWT_AUTHENTICATION.md))
+- **Password Security**: Real-time password strength indicator with comprehensive analysis (see [PASSWORD_STRENGTH.md](PASSWORD_STRENGTH.md))
+- **E2EE**: Multi-device End-to-End Encryption with X25519/AES-256-GCM (see [E2EE_IMPLEMENTATION.md](E2EE_IMPLEMENTATION.md))
 
 Where to look
 - **Backend crypto**: `go-backend/cryptography`
+- **E2EE management**: `go-backend/e2ee`
 - **Message encryption**: `go-backend/message_utils`
 - **Password checks**: `go-backend/password_utils`
 - **JWT authentication**: `go-backend/jwt_auth`
 - **Input validation**: `go-backend/validation`
+- **Registration UI**: `frontend/src/pages/register.astro`
+
+Documentation
+- [JWT Authentication Guide](JWT_AUTHENTICATION.md) - Token-based authentication
+- [Password Strength Guide](PASSWORD_STRENGTH.md) - Password validation and UI
+- [E2EE Implementation](E2EE_IMPLEMENTATION.md) - Server-side E2EE architecture
+- [E2EE Client Guide](E2EE_CLIENT_GUIDE.md) - JavaScript/TypeScript client examples
 
 Implemented algorithms
 - **Argon2id (password hashing)**: used for secure, memory-hard password hashing (`go-backend/cryptography/cryptography.go`).

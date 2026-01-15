@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/Hadidomena/projektKomunikator/cryptography"
+	"github.com/Hadidomena/projektKomunikator/e2ee"
 	jwt_auth "github.com/Hadidomena/projektKomunikator/jwt_auth"
+	message_utils "github.com/Hadidomena/projektKomunikator/message_utils"
 	passwordutils "github.com/Hadidomena/projektKomunikator/password_utils"
 	"github.com/Hadidomena/projektKomunikator/validation"
 	"github.com/lib/pq"
@@ -37,6 +39,23 @@ type LoginRequest struct {
 type SendMessageRequest struct {
 	ReceiverEmail string `json:"receiver_email"`
 	Content       string `json:"content"`
+	DeviceID      int    `json:"device_id,omitempty"` // Optional: sender's device ID
+	Encrypted     bool   `json:"encrypted,omitempty"` // Is the message encrypted?
+}
+
+type RegisterDeviceRequest struct {
+	DeviceName string `json:"device_name"`
+	PublicKey  string `json:"public_key,omitempty"` // Optional: if client provides key
+}
+
+type DeviceResponse struct {
+	ID                int       `json:"id"`
+	DeviceName        string    `json:"device_name"`
+	PublicKey         string    `json:"public_key"`
+	DeviceFingerprint string    `json:"device_fingerprint"`
+	LastUsed          time.Time `json:"last_used"`
+	CreatedAt         time.Time `json:"created_at"`
+	IsActive          bool      `json:"is_active"`
 }
 
 type MessageResponse struct {
@@ -112,6 +131,12 @@ func main() {
 	http.HandleFunc("/api/register", registerHandler)
 	http.HandleFunc("/api/login", loginHandler)
 	http.HandleFunc("/api/check-password-strength", checkPasswordStrengthHandler)
+
+	// E2EE Device Management endpoints (protected)
+	http.HandleFunc("/api/devices/register", authMiddleware(registerDeviceHandler))
+	http.HandleFunc("/api/devices/list", authMiddleware(listDevicesHandler))
+	http.HandleFunc("/api/devices/deactivate", authMiddleware(deactivateDeviceHandler))
+	http.HandleFunc("/api/devices/public-key", getDevicePublicKeyHandler) // Public endpoint for key exchange
 
 	// Protected endpoints with JWT authentication
 	http.HandleFunc("/api/messages/send", authMiddleware(sendMessageHandler))
@@ -325,7 +350,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Insert the new user into the database with context
-	_, err = db.ExecContext(ctx2, "INSERT INTO Users (username, email, password_hash, public_key) VALUES ($1, $2, $3, $4)", req.Username, strings.ToLower(req.Email), hashedPassword, "")
+	_, err = db.ExecContext(ctx2, "INSERT INTO Users (username, email, password_hash) VALUES ($1, $2, $3)", req.Username, strings.ToLower(req.Email), hashedPassword)
 	if err != nil {
 		// Check if the error is a unique constraint violation
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
@@ -617,11 +642,89 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Insert message
+	// Handle E2EE encryption if requested
+	messageContent := req.Content
+	var encryptedKey *string
+
+	if req.Encrypted && req.DeviceID > 0 {
+		// Get sender's device private key from environment
+		var senderDeviceFingerprint string
+		err = db.QueryRowContext(ctx,
+			"SELECT device_fingerprint FROM UserDevices WHERE id = $1 AND user_id = $2 AND is_active = TRUE",
+			req.DeviceID, senderID).Scan(&senderDeviceFingerprint)
+		if err != nil {
+			log.Printf("Failed to get sender device: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid sender device"})
+			return
+		}
+
+		senderPrivateKey, err := e2ee.GetPrivateKeyFromEnv(senderDeviceFingerprint)
+		if err != nil {
+			log.Printf("Failed to get sender private key: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "E2EE key not available"})
+			return
+		}
+
+		// Get receiver's active device public key
+		var receiverPublicKey string
+		var receiverDeviceID int
+		err = db.QueryRowContext(ctx,
+			"SELECT id, public_key FROM UserDevices WHERE user_id = $1 AND is_active = TRUE ORDER BY last_used DESC LIMIT 1",
+			receiverID).Scan(&receiverDeviceID, &receiverPublicKey)
+		if err != nil {
+			log.Printf("Failed to get receiver device: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Receiver has no active devices for E2EE"})
+			return
+		}
+
+		// Compute shared secret using ECDH
+		sharedSecret, err := e2ee.ComputeSharedSecret(senderPrivateKey, receiverPublicKey)
+		if err != nil {
+			log.Printf("Failed to compute shared secret: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "E2EE encryption failed"})
+			return
+		}
+
+		// Use first 32 bytes of shared secret as AES-256 key
+		encryptionKey := sharedSecret[:32]
+
+		// Encrypt message content using AES-GCM
+		encryptedContent, err := message_utils.EncryptMessage(req.Content, encryptionKey)
+		if err != nil {
+			log.Printf("Failed to encrypt message: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Message encryption failed"})
+			return
+		}
+
+		messageContent = encryptedContent
+		encKeyStr := "e2ee"
+		encryptedKey = &encKeyStr
+
+		// Store receiver device ID for reference
+		req.DeviceID = receiverDeviceID
+	}
+
+	// Insert message with optional E2EE metadata
 	var messageID int
-	err = db.QueryRowContext(ctx,
-		"INSERT INTO Messages (sender_id, receiver_id, content) VALUES ($1, $2, $3) RETURNING id",
-		senderID, receiverID, req.Content).Scan(&messageID)
+	if encryptedKey != nil {
+		err = db.QueryRowContext(ctx,
+			"INSERT INTO Messages (sender_id, sender_device_id, receiver_id, receiver_device_id, content, encrypted_key) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+			senderID, req.DeviceID, receiverID, req.DeviceID, messageContent, encryptedKey).Scan(&messageID)
+	} else {
+		err = db.QueryRowContext(ctx,
+			"INSERT INTO Messages (sender_id, receiver_id, content) VALUES ($1, $2, $3) RETURNING id",
+			senderID, receiverID, messageContent).Scan(&messageID)
+	}
 	if err != nil {
 		log.Printf("Failed to insert message: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -632,10 +735,14 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	response := map[string]interface{}{
 		"message":    "Message sent successfully",
 		"message_id": messageID,
-	})
+	}
+	if encryptedKey != nil {
+		response["encrypted"] = true
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
 // getInboxHandler retrieves inbox messages for the authenticated user
@@ -910,5 +1017,281 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Message deleted successfully",
+	})
+}
+
+// registerDeviceHandler handles registering a new device for E2EE
+func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get authenticated user from JWT context
+	userID, _, err := getUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	var req RegisterDeviceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request"})
+		return
+	}
+
+	if req.DeviceName == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Device name is required"})
+		return
+	}
+
+	// Generate E2EE keys for the device
+	deviceKeys, err := e2ee.GenerateDeviceKeys(userID, req.DeviceName)
+	if err != nil {
+		log.Printf("Failed to generate device keys: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to generate device keys"})
+		return
+	}
+
+	// If client provided a public key, use it instead
+	publicKey := deviceKeys.PublicKey
+	if req.PublicKey != "" {
+		publicKey = req.PublicKey
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Store device in database (only public key, never private key)
+	var deviceID int
+	err = db.QueryRowContext(ctx,
+		`INSERT INTO UserDevices (user_id, device_name, public_key, device_fingerprint) 
+		 VALUES ($1, $2, $3, $4) RETURNING id`,
+		userID, req.DeviceName, publicKey, deviceKeys.DeviceFingerprint).Scan(&deviceID)
+	if err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" { // Unique violation
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Device already registered"})
+			return
+		}
+		log.Printf("Failed to register device: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to register device"})
+		return
+	}
+
+	// Store private key in environment variable (not in DB)
+	if err := e2ee.StorePrivateKeyInEnv(deviceKeys.DeviceFingerprint, deviceKeys.PrivateKey); err != nil {
+		log.Printf("Warning: Failed to store private key in environment: %v", err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":            "Device registered successfully",
+		"device_id":          deviceID,
+		"device_fingerprint": deviceKeys.DeviceFingerprint,
+		"public_key":         publicKey,
+		"private_key":        deviceKeys.PrivateKey, // Return once to client - client must store securely
+	})
+}
+
+// listDevicesHandler lists all devices for the authenticated user
+func listDevicesHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, _, err := getUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, device_name, public_key, device_fingerprint, last_used, created_at, is_active
+		FROM UserDevices
+		WHERE user_id = $1
+		ORDER BY last_used DESC
+	`, userID)
+	if err != nil {
+		log.Printf("Failed to query devices: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve devices"})
+		return
+	}
+	defer rows.Close()
+
+	var devices []DeviceResponse
+	for rows.Next() {
+		var device DeviceResponse
+		if err := rows.Scan(&device.ID, &device.DeviceName, &device.PublicKey, &device.DeviceFingerprint,
+			&device.LastUsed, &device.CreatedAt, &device.IsActive); err != nil {
+			log.Printf("Failed to scan device: %v", err)
+			continue
+		}
+		devices = append(devices, device)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(devices)
+}
+
+// deactivateDeviceHandler deactivates a device
+func deactivateDeviceHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, _, err := getUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	var req struct {
+		DeviceID int `json:"device_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	result, err := db.ExecContext(ctx, `
+		UPDATE UserDevices 
+		SET is_active = FALSE
+		WHERE id = $1 AND user_id = $2
+	`, req.DeviceID, userID)
+	if err != nil {
+		log.Printf("Failed to deactivate device: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to deactivate device"})
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Device not found"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Device deactivated successfully",
+	})
+}
+
+// getDevicePublicKeyHandler retrieves a device's public key for key exchange
+func getDevicePublicKeyHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get email and device_fingerprint from query params
+	email := r.URL.Query().Get("email")
+	deviceFingerprint := r.URL.Query().Get("device_fingerprint")
+
+	if email == "" || deviceFingerprint == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Email and device_fingerprint are required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	var publicKey string
+	err := db.QueryRowContext(ctx, `
+		SELECT ud.public_key
+		FROM UserDevices ud
+		JOIN Users u ON ud.user_id = u.id
+		WHERE u.email = $1 AND ud.device_fingerprint = $2 AND ud.is_active = TRUE
+	`, strings.ToLower(email), deviceFingerprint).Scan(&publicKey)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Device not found"})
+			return
+		}
+		log.Printf("Failed to get public key: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve public key"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"public_key": publicKey,
 	})
 }
