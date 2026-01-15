@@ -111,6 +111,7 @@ func main() {
 	http.HandleFunc("/api/texts", textsHandler)
 	http.HandleFunc("/api/register", registerHandler)
 	http.HandleFunc("/api/login", loginHandler)
+	http.HandleFunc("/api/check-password-strength", checkPasswordStrengthHandler)
 
 	// Protected endpoints with JWT authentication
 	http.HandleFunc("/api/messages/send", authMiddleware(sendMessageHandler))
@@ -503,6 +504,41 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		"email":      email,
 		"expires_in": jwt_auth.GetTokenExpiration().Seconds(),
 	})
+}
+
+// checkPasswordStrengthHandler handles password strength checking
+func checkPasswordStrengthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request"})
+		return
+	}
+
+	// Get password strength
+	strength := passwordutils.GetPasswordStrength(req.Password)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(strength)
 }
 
 // sendMessageHandler handles sending messages between users

@@ -134,6 +134,85 @@ func isCommonPassword(password string) bool {
 	return exists
 }
 
+// PasswordStrength represents the strength analysis of a password
+type PasswordStrength struct {
+	Score      float64 `json:"score"`       // Raw strength score
+	Level      string  `json:"level"`       // weak, fair, good, strong, very_strong
+	IsCommon   bool    `json:"is_common"`   // Is it a commonly used password?
+	Length     int     `json:"length"`      // Password length
+	HasUpper   bool    `json:"has_upper"`   // Contains uppercase letters
+	HasLower   bool    `json:"has_lower"`   // Contains lowercase letters
+	HasNumbers bool    `json:"has_numbers"` // Contains numbers
+	HasSymbols bool    `json:"has_symbols"` // Contains special symbols
+	Feedback   string  `json:"feedback"`    // User-friendly feedback message
+}
+
+// GetPasswordStrength returns detailed password strength analysis
+func GetPasswordStrength(password string) PasswordStrength {
+	result := PasswordStrength{
+		Length:   len(password),
+		IsCommon: isCommonPassword(password),
+	}
+
+	// Count character types
+	symbols := countSymbols(password)
+	result.HasUpper = symbols[0] > 0
+	result.HasLower = symbols[1] > 0
+	result.HasNumbers = symbols[2] > 0
+	result.HasSymbols = symbols[3] > 0
+
+	// Calculate strength score
+	result.Score = calculatePasswordStrength(password)
+
+	// Determine level and feedback
+	switch {
+	case result.Length < 12:
+		result.Level = "weak"
+		result.Feedback = "Password too short (minimum 12 characters)"
+	case result.IsCommon:
+		result.Level = "weak"
+		result.Feedback = "This is a commonly used password"
+	case result.Score < 400:
+		result.Level = "weak"
+		result.Feedback = "Password is too weak"
+	case result.Score < 600:
+		result.Level = "fair"
+		result.Feedback = "Password strength is fair"
+	case result.Score < 800:
+		result.Level = "good"
+		result.Feedback = "Password strength is good"
+	case result.Score < 1000:
+		result.Level = "strong"
+		result.Feedback = "Password is strong"
+	default:
+		result.Level = "very_strong"
+		result.Feedback = "Password is very strong"
+	}
+
+	// Add specific suggestions
+	if !result.HasUpper || !result.HasLower || !result.HasNumbers || !result.HasSymbols {
+		if result.Level != "weak" {
+			result.Feedback += " (consider adding "
+			missing := []string{}
+			if !result.HasUpper {
+				missing = append(missing, "uppercase")
+			}
+			if !result.HasLower {
+				missing = append(missing, "lowercase")
+			}
+			if !result.HasNumbers {
+				missing = append(missing, "numbers")
+			}
+			if !result.HasSymbols {
+				missing = append(missing, "symbols")
+			}
+			result.Feedback += strings.Join(missing, ", ") + ")"
+		}
+	}
+
+	return result
+}
+
 // Externally provided function to check validity of password
 // returns 1 for too short a password,
 // 2 for password from common list
