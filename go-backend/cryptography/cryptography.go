@@ -11,11 +11,8 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// appPepper is a package-level variable to hold the pepper.
-// It's unexported to prevent direct modification from other packages.
 var appPepper string
 
-// params holds the configuration for Argon2.
 type params struct {
 	memory      uint32
 	iterations  uint32
@@ -24,7 +21,6 @@ type params struct {
 	keyLength   uint32
 }
 
-// SetPepper initializes the appPepper for the cryptography package.
 func SetPepper(p string) {
 	if p == "" {
 		log.Panic("SECURITY ERROR: PEPPER cannot be empty")
@@ -32,39 +28,30 @@ func SetPepper(p string) {
 	appPepper = p
 }
 
-// HashPassword creates an Argon2id hash of a password.
-// It returns the hash in a format that includes all the parameters needed for verification.
 func HashPassword(password string) (string, error) {
 	if password == "" {
 		return "", fmt.Errorf("password cannot be empty")
 	}
-	// Recommended parameters for Argon2id.
-	// These should be tuned based on your hardware and security requirements.
+
 	p := &params{
-		memory:      64 * 1024, // 64 MB
+		memory:      64 * 1024,
 		iterations:  3,
 		parallelism: 2,
 		saltLength:  16,
 		keyLength:   32,
 	}
 
-	// Generate a cryptographically secure random salt.
 	salt := make([]byte, p.saltLength)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
 
-	// Combine password and pepper before hashing.
 	passwordWithPepper := []byte(password + appPepper)
-
-	// Hash the password using Argon2id.
 	hash := argon2.IDKey(passwordWithPepper, salt, p.iterations, p.memory, p.parallelism, p.keyLength)
 
-	// Encode the salt and hash to Base64.
 	b64Salt := base64.RawStdEncoding.EncodeToString(salt)
 	b64Hash := base64.RawStdEncoding.EncodeToString(hash)
 
-	// Create a standard storable format: $argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>
 	encodedHash := fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, p.memory, p.iterations, p.parallelism, b64Salt, b64Hash)
 
@@ -90,7 +77,6 @@ func VerifyPassword(password, encodedHash string) (bool, error) {
 	return false, nil
 }
 
-// decodeHash parses an encoded hash string and extracts the Argon2 parameters, salt, and hash.
 func decodeHash(encodedHash string) (p *params, salt, hash []byte, err error) {
 	vals := strings.Split(encodedHash, "$")
 	if len(vals) != 6 {

@@ -17,8 +17,6 @@ var (
 	loaded bool
 )
 
-// LoadCommonPasswords loads the common passwords file into memory at startup
-// This should be called once during application initialization
 func LoadCommonPasswords() error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -98,7 +96,6 @@ func shannonEntropy(password string) float64 {
 }
 
 func calculatePasswordStrength(password string) float64 {
-	// Bonuses
 	strength := float64(len(password) * 4)
 	symbols := countSymbols(password)
 	strength += symbols[0] * 2
@@ -107,7 +104,6 @@ func calculatePasswordStrength(password string) float64 {
 	strength += symbols[3] * 6
 	strength *= shannonEntropy(password)
 
-	// Deductions
 	for _, symbol := range symbols {
 		if symbol == 0 {
 			strength -= float64(len(password) * 2)
@@ -120,7 +116,6 @@ func isCommonPassword(password string) bool {
 	mu.RLock()
 	defer mu.RUnlock()
 
-	// If passwords aren't loaded, try to load them on the fly
 	if !loaded {
 		mu.RUnlock()
 		if err := LoadCommonPasswords(); err != nil {
@@ -154,17 +149,14 @@ func GetPasswordStrength(password string) PasswordStrength {
 		IsCommon: isCommonPassword(password),
 	}
 
-	// Count character types
 	symbols := countSymbols(password)
 	result.HasUpper = symbols[0] > 0
 	result.HasLower = symbols[1] > 0
 	result.HasNumbers = symbols[2] > 0
 	result.HasSymbols = symbols[3] > 0
 
-	// Calculate strength score
 	result.Score = calculatePasswordStrength(password)
 
-	// Determine level and feedback
 	switch {
 	case result.Length < 12:
 		result.Level = "weak"
@@ -189,7 +181,6 @@ func GetPasswordStrength(password string) PasswordStrength {
 		result.Feedback = "Password is very strong"
 	}
 
-	// Add specific suggestions
 	if !result.HasUpper || !result.HasLower || !result.HasNumbers || !result.HasSymbols {
 		if result.Level != "weak" {
 			result.Feedback += " (consider adding "

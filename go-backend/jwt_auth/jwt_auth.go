@@ -10,10 +10,8 @@ import (
 )
 
 var (
-	// jwtSecret is loaded from environment variable
 	jwtSecret []byte
 
-	// Token expiration time
 	tokenExpiration = 24 * time.Hour
 )
 
@@ -28,7 +26,6 @@ type Claims struct {
 func InitJWT() error {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		// For development only - in production this should be required
 		secret = "development-secret-key-change-in-production"
 	}
 
@@ -74,7 +71,6 @@ func ValidateToken(tokenString string) (*Claims, error) {
 	}
 
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		// Verify signing method
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -100,12 +96,10 @@ func RefreshToken(tokenString string) (string, error) {
 		return "", err
 	}
 
-	// Check if token is close to expiration (less than 1 hour remaining)
 	if time.Until(claims.ExpiresAt.Time) > time.Hour {
 		return "", errors.New("token does not need refresh yet")
 	}
 
-	// Generate new token with same user info
 	return GenerateToken(claims.UserID, claims.Email)
 }
 

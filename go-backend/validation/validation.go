@@ -51,18 +51,15 @@ func (t *LoginAttemptTracker) RecordFailedAttempt(email, ip string) (bool, time.
 	status.mu.Lock()
 	defer status.mu.Unlock()
 
-	// Check if account is permanently blocked
 	if status.IsBlocked {
 		return true, 0, true, fmt.Errorf("account is permanently blocked")
 	}
 
-	// Add the failed attempt
 	status.FailedAttempts = append(status.FailedAttempts, LoginAttempt{
 		Timestamp: time.Now(),
 		IP:        ip,
 	})
 
-	// Clean old attempts (older than 10 minutes)
 	cutoff := time.Now().Add(-10 * time.Minute)
 	validAttempts := make([]LoginAttempt, 0)
 	for _, attempt := range status.FailedAttempts {
@@ -74,25 +71,18 @@ func (t *LoginAttemptTracker) RecordFailedAttempt(email, ip string) (bool, time.
 
 	attemptCount := len(status.FailedAttempts)
 
-	// Apply locking rules:
-	// 1 failed attempt: 1 minute timeout
-	// 3 failed attempts: 5 minute timeout
-	// 5 failed attempts: permanent block
 	var lockDuration time.Duration
 	var isLocked bool
 
 	switch {
 	case attemptCount >= 5:
-		// Permanent block after 5 attempts
 		status.IsBlocked = true
 		return true, 0, true, fmt.Errorf("account permanently blocked after 5 failed attempts")
 	case attemptCount >= 3:
-		// 5 minute timeout after 3 attempts
 		lockDuration = 5 * time.Minute
 		status.LockedUntil = time.Now().Add(lockDuration)
 		isLocked = true
 	case attemptCount >= 1:
-		// 1 minute timeout after first failed attempt
 		lockDuration = 1 * time.Minute
 		status.LockedUntil = time.Now().Add(lockDuration)
 		isLocked = true
@@ -126,7 +116,6 @@ func (t *LoginAttemptTracker) CheckAccountStatus(email string) (bool, time.Durat
 	return false, 0, false
 }
 
-// ResetAttempts resets the failed attempts for an account (called on successful login)
 func (t *LoginAttemptTracker) ResetAttempts(email string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -178,10 +167,8 @@ func CheckEmailExists(db *sql.DB, email string) (bool, error) {
 	return exists, nil
 }
 
-// GetSanitizedError returns a generic error message to prevent information leakage
-// This ensures attackers cannot determine if an email exists or other sensitive info
+// GetSanitizedError returns a generic error message to prevent information leakage.
 func GetSanitizedError(errorType string) string {
-	// Return generic messages that don't reveal specific information
 	switch errorType {
 	case "login_failed":
 		return "Invalid credentials"

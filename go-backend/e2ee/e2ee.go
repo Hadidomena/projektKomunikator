@@ -17,16 +17,14 @@ type DeviceKeyPair struct {
 	PrivateKey        string // Only stored in environment, never in DB
 }
 
-// GenerateDeviceKeys creates a new key pair for a device
-// The private key is stored as an environment variable, not in the database
+// GenerateDeviceKeys creates a new key pair for a device.
+// The private key is stored as an environment variable, not in the database.
 func GenerateDeviceKeys(userID int, deviceName string) (*DeviceKeyPair, error) {
-	// Generate E2EE key pair
 	privateKey, publicKey, err := cryptography.GenerateE2EEKeys()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate E2EE keys: %w", err)
 	}
 
-	// Create device fingerprint (hash of user ID + device name + public key)
 	fingerprint := GenerateDeviceFingerprint(userID, deviceName, publicKey)
 
 	return &DeviceKeyPair{
@@ -43,14 +41,11 @@ func GenerateDeviceFingerprint(userID int, deviceName, publicKey string) string 
 	return hex.EncodeToString(hash[:])
 }
 
-// StorePrivateKeyInEnv stores the private key in an environment variable
-// Format: E2EE_PRIVATE_KEY_<fingerprint> = <private_key>
 func StorePrivateKeyInEnv(fingerprint, privateKey string) error {
 	envVarName := fmt.Sprintf("E2EE_PRIVATE_KEY_%s", fingerprint)
 	return os.Setenv(envVarName, privateKey)
 }
 
-// GetPrivateKeyFromEnv retrieves the private key from environment variable
 func GetPrivateKeyFromEnv(fingerprint string) (string, error) {
 	envVarName := fmt.Sprintf("E2EE_PRIVATE_KEY_%s", fingerprint)
 	privateKey := os.Getenv(envVarName)
@@ -67,32 +62,23 @@ func ComputeSharedSecret(myPrivateKey, theirPublicKey string) ([]byte, error) {
 
 // EncryptMessageForDevice encrypts a message using the shared secret with another device
 func EncryptMessageForDevice(plaintext, myPrivateKey, theirPublicKey string) (ciphertext string, err error) {
-	// Calculate shared secret using ECDH
 	sharedSecret, err := ComputeSharedSecret(myPrivateKey, theirPublicKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to compute shared secret: %w", err)
 	}
 
-	// Use shared secret as encryption key (first 32 bytes for AES-256)
-	_ = sharedSecret[:32] // Prepared for future use
-
-	// This will be handled in the handler with message_utils
-	return plaintext, nil // Placeholder - actual encryption done in handler
+	_ = sharedSecret[:32]
+	return plaintext, nil
 }
 
-// DecryptMessageFromDevice decrypts a message using the shared secret
 func DecryptMessageFromDevice(ciphertext, myPrivateKey, theirPublicKey string) (plaintext string, err error) {
-	// Calculate shared secret using ECDH
 	sharedSecret, err := ComputeSharedSecret(myPrivateKey, theirPublicKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to compute shared secret: %w", err)
 	}
 
-	// Use shared secret as decryption key (first 32 bytes for AES-256)
-	_ = sharedSecret[:32] // Prepared for future use
-
-	// This will be handled in the handler with message_utils
-	return ciphertext, nil // Placeholder - actual decryption done in handler
+	_ = sharedSecret[:32]
+	return ciphertext, nil
 }
 
 // DeviceInfo represents device information

@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/Hadidomena/projektKomunikator/cryptography"
+	"github.com/Hadidomena/projektKomunikator/csrf"
 	"github.com/Hadidomena/projektKomunikator/e2ee"
 	jwt_auth "github.com/Hadidomena/projektKomunikator/jwt_auth"
 	message_utils "github.com/Hadidomena/projektKomunikator/message_utils"
 	passwordutils "github.com/Hadidomena/projektKomunikator/password_utils"
+	"github.com/Hadidomena/projektKomunikator/totp"
 	"github.com/Hadidomena/projektKomunikator/validation"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
@@ -41,6 +43,8 @@ type SendMessageRequest struct {
 	Content       string `json:"content"`
 	DeviceID      int    `json:"device_id,omitempty"` // Optional: sender's device ID
 	Encrypted     bool   `json:"encrypted,omitempty"` // Is the message encrypted?
+	Signature     string `json:"signature,omitempty"` // Message signature for authenticity
+	CSRFToken     string `json:"csrf_token"`          // CSRF token
 }
 
 type RegisterDeviceRequest struct {
@@ -63,6 +67,7 @@ type MessageResponse struct {
 	SenderEmail   string     `json:"sender_email"`
 	ReceiverEmail string     `json:"receiver_email"`
 	Content       string     `json:"content"`
+	Signature     string     `json:"signature,omitempty"`
 	IsRead        bool       `json:"is_read"`
 	CreatedAt     time.Time  `json:"created_at"`
 	ReadAt        *time.Time `json:"read_at,omitempty"`
@@ -71,13 +76,34 @@ type MessageResponse struct {
 type ErrorResponse struct {
 	Message string `json:"message"`
 }
+type TOTPSetupRequest struct {
+	CSRFToken string `json:"csrf_token"`
+}
+
+type TOTPSetupResponse struct {
+	Secret string `json:"secret"`
+	QRCode string `json:"qr_code_url"`
+}
+
+type TOTPVerifyRequest struct {
+	Code      string `json:"code"`
+	CSRFToken string `json:"csrf_token"`
+}
+
+type TOTPValidateRequest struct {
+	Email string `json:"email"`
+	Code  string `json:"code"`
+}
+
+type CSRFTokenResponse struct {
+	Token string `json:"csrf_token"`
+}
 
 var db *sql.DB
+var csrfStore *csrf.TokenStore
 var loginTracker *validation.LoginAttemptTracker
 
 var (
-	// appPepper is a global secret used to augment password hashing.
-	// It is loaded from an environment variable at startup.
 	appPepper string
 )
 
@@ -103,10 +129,20 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	csrfStore = csrf.NewTokenStore()
 
-	// Configure connection pool for better concurrency
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
+	http.HandleFunc("/api/texts", textsHandler)
+	http.HandleFunc("/api/register", registerHandler)
+	http.HandleFunc("/api/login", loginHandler)
+	http.HandleFunc("/api/check-password-strength", checkPasswordStrengthHandler)
+
+	http.HandleFunc("/api/csrf-token", authMiddleware(csrfTokenHandler))
+
+	// 2FA endpoints (protected)
+	http.HandleFunc("/api/2fa/setup", authMiddleware(totpSetupHandler))
+	http.HandleFunc("/api/2fa/verify", authMiddleware(totpVerifyHandler))
+	http.HandleFunc("/api/2fa/disable", authMiddleware(totpDisableHandler))
+	http.HandleFunc("/api/2fa/validate", totpValidateHandler) // Public endpoint for login
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetConnMaxIdleTime(10 * time.Minute)
 
@@ -114,17 +150,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Load common passwords into memory on startup
 	if err := passwordutils.LoadCommonPasswords(); err != nil {
 		log.Printf("Warning: Could not load common passwords: %v", err)
 	}
 
-	// Initialize JWT
 	if err := jwt_auth.InitJWT(); err != nil {
 		log.Fatalf("Failed to initialize JWT: %v", err)
 	}
 
-	// Initialize login attempt tracker
 	loginTracker = validation.NewLoginAttemptTracker()
 
 	http.HandleFunc("/api/texts", textsHandler)
@@ -132,13 +165,11 @@ func main() {
 	http.HandleFunc("/api/login", loginHandler)
 	http.HandleFunc("/api/check-password-strength", checkPasswordStrengthHandler)
 
-	// E2EE Device Management endpoints (protected)
 	http.HandleFunc("/api/devices/register", authMiddleware(registerDeviceHandler))
 	http.HandleFunc("/api/devices/list", authMiddleware(listDevicesHandler))
 	http.HandleFunc("/api/devices/deactivate", authMiddleware(deactivateDeviceHandler))
-	http.HandleFunc("/api/devices/public-key", getDevicePublicKeyHandler) // Public endpoint for key exchange
+	http.HandleFunc("/api/devices/public-key", getDevicePublicKeyHandler)
 
-	// Protected endpoints with JWT authentication
 	http.HandleFunc("/api/messages/send", authMiddleware(sendMessageHandler))
 	http.HandleFunc("/api/messages/inbox", authMiddleware(getInboxHandler))
 	http.HandleFunc("/api/messages/sent", authMiddleware(getSentMessagesHandler))
@@ -149,10 +180,8 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-// authMiddleware is a middleware that validates JWT tokens
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Extract token from Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			w.Header().Set("Content-Type", "application/json")
@@ -161,7 +190,6 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// Expected format: "Bearer <token>"
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
 			w.Header().Set("Content-Type", "application/json")
@@ -179,7 +207,6 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// Add user info to request context
 		ctx := context.WithValue(r.Context(), "userID", claims.UserID)
 		ctx = context.WithValue(ctx, "userEmail", claims.Email)
 
@@ -187,7 +214,6 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// getUserFromContext extracts user information from request context
 func getUserFromContext(r *http.Request) (int, string, error) {
 	userID, ok := r.Context().Value("userID").(int)
 	if !ok {
@@ -203,7 +229,7 @@ func getUserFromContext(r *http.Request) (int, string, error) {
 }
 
 func textsHandler(w http.ResponseWriter, r *http.Request) {
-	// Set CORS headers
+
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -225,11 +251,9 @@ func textsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create context with timeout for database operation
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	// Use context-aware database query
 	_, err = db.ExecContext(ctx, "INSERT INTO Texts (content) VALUES ($1)", submission.Content)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -247,7 +271,6 @@ func textsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func registerHandler(w http.ResponseWriter, r *http.Request) {
-	// Set CORS headers for preflight and actual requests
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -270,7 +293,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate input fields
+
 	if req.Username == "" || req.Email == "" || req.Password == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -278,7 +301,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate email format
+
 	if !validation.ValidateEmail(req.Email) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -286,7 +309,6 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if email already exists
 	ctx2, cancel2 := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel2()
 
@@ -306,7 +328,6 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Password validation is now fast (in-memory check)
 	if passwordutils.IsViablePassword(req.Password) == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -314,11 +335,9 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create context with timeout for potentially long operations
 	ctx2, cancel2 = context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel2()
 
-	// Use a channel to handle the password hashing asynchronously
 	type hashResult struct {
 		hash string
 		err  error
@@ -349,10 +368,8 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		hashedPassword = result.hash
 	}
 
-	// Insert the new user into the database with context
 	_, err = db.ExecContext(ctx2, "INSERT INTO Users (username, email, password_hash) VALUES ($1, $2, $3)", req.Username, strings.ToLower(req.Email), hashedPassword)
 	if err != nil {
-		// Check if the error is a unique constraint violation
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
@@ -360,7 +377,6 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Check for context timeout
 		if ctx2.Err() == context.DeadlineExceeded {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusRequestTimeout)
@@ -369,7 +385,6 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// For any other database error
 		log.Printf("Failed to insert user into database: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -382,7 +397,6 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
-	// Set CORS headers
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -405,7 +419,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate email format
+
 	if !validation.ValidateEmail(req.Email) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -413,10 +427,8 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Normalize email to lowercase
 	email := strings.ToLower(req.Email)
 
-	// Check account status before attempting login
 	isLocked, remainingTime, isBlocked := loginTracker.CheckAccountStatus(email)
 
 	if isBlocked {
@@ -436,18 +448,15 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create context with timeout
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// Query user from database
 	var storedHash string
 	var userID int
 	err := db.QueryRowContext(ctx, "SELECT id, password_hash FROM Users WHERE email = $1", email).Scan(&userID, &storedHash)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			// User not found - record failed attempt and return generic error
 			ip := r.RemoteAddr
 			loginTracker.RecordFailedAttempt(email, ip)
 
@@ -457,7 +466,6 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Database error
 		log.Printf("Database error during login: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -465,7 +473,6 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify password
 	passwordValid, err := cryptography.VerifyPassword(req.Password, storedHash)
 	if err != nil {
 		log.Printf("Error verifying password: %v", err)
@@ -476,7 +483,6 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !passwordValid {
-		// Invalid password - record failed attempt
 		ip := r.RemoteAddr
 		isLocked, lockDuration, isBlocked, _ := loginTracker.RecordFailedAttempt(email, ip)
 
@@ -505,10 +511,8 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Successful login - reset failed attempts
 	loginTracker.ResetAttempts(email)
 
-	// Generate JWT token
 	token, err := jwt_auth.GenerateToken(userID, email)
 	if err != nil {
 		log.Printf("Failed to generate JWT token: %v", err)
@@ -558,7 +562,7 @@ func checkPasswordStrengthHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get password strength
+
 	strength := passwordutils.GetPasswordStrength(req.Password)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -582,8 +586,8 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get authenticated user from JWT context
-	senderID, _, err := getUserFromContext(r)
+
+	senderID, senderEmail, err := getUserFromContext(r)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -599,7 +603,15 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate input
+
+	if !csrfStore.ValidateToken(senderEmail, req.CSRFToken) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
+		return
+	}
+
+
 	if req.ReceiverEmail == "" || req.Content == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -614,7 +626,7 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Limit message length
+
 	if len(req.Content) > 10000 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -625,7 +637,7 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// Get receiver ID
+
 	var receiverID int
 	err = db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(req.ReceiverEmail)).Scan(&receiverID)
 	if err != nil {
@@ -642,7 +654,7 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle E2EE encryption if requested
+
 	messageContent := req.Content
 	var encryptedKey *string
 
@@ -669,7 +681,6 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Get receiver's active device public key
 		var receiverPublicKey string
 		var receiverDeviceID int
 		err = db.QueryRowContext(ctx,
@@ -683,7 +694,6 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Compute shared secret using ECDH
 		sharedSecret, err := e2ee.ComputeSharedSecret(senderPrivateKey, receiverPublicKey)
 		if err != nil {
 			log.Printf("Failed to compute shared secret: %v", err)
@@ -693,10 +703,8 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Use first 32 bytes of shared secret as AES-256 key
 		encryptionKey := sharedSecret[:32]
 
-		// Encrypt message content using AES-GCM
 		encryptedContent, err := message_utils.EncryptMessage(req.Content, encryptionKey)
 		if err != nil {
 			log.Printf("Failed to encrypt message: %v", err)
@@ -710,20 +718,19 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		encKeyStr := "e2ee"
 		encryptedKey = &encKeyStr
 
-		// Store receiver device ID for reference
 		req.DeviceID = receiverDeviceID
 	}
 
-	// Insert message with optional E2EE metadata
+
 	var messageID int
 	if encryptedKey != nil {
 		err = db.QueryRowContext(ctx,
-			"INSERT INTO Messages (sender_id, sender_device_id, receiver_id, receiver_device_id, content, encrypted_key) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-			senderID, req.DeviceID, receiverID, req.DeviceID, messageContent, encryptedKey).Scan(&messageID)
+			"INSERT INTO Messages (sender_id, sender_device_id, receiver_id, receiver_device_id, content, encrypted_key, message_signature) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+			senderID, req.DeviceID, receiverID, req.DeviceID, messageContent, encryptedKey, req.Signature).Scan(&messageID)
 	} else {
 		err = db.QueryRowContext(ctx,
-			"INSERT INTO Messages (sender_id, receiver_id, content) VALUES ($1, $2, $3) RETURNING id",
-			senderID, receiverID, messageContent).Scan(&messageID)
+			"INSERT INTO Messages (sender_id, receiver_id, content, message_signature) VALUES ($1, $2, $3, $4) RETURNING id",
+			senderID, receiverID, messageContent, req.Signature).Scan(&messageID)
 	}
 	if err != nil {
 		log.Printf("Failed to insert message: %v", err)
@@ -761,7 +768,7 @@ func getInboxHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get authenticated user from JWT context
+
 	userID, userEmail, err := getUserFromContext(r)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -773,9 +780,9 @@ func getInboxHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// Get messages
+
 	rows, err := db.QueryContext(ctx, `
-		SELECT m.id, u.email, m.content, m.is_read, m.created_at, m.read_at
+		SELECT m.id, u.email, m.content, m.message_signature, m.is_read, m.created_at, m.read_at
 		FROM Messages m
 		JOIN Users u ON m.sender_id = u.id
 		WHERE m.receiver_id = $1 AND m.is_deleted_by_receiver = FALSE
@@ -794,13 +801,17 @@ func getInboxHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var msg MessageResponse
 		var senderEmail string
-		err := rows.Scan(&msg.ID, &senderEmail, &msg.Content, &msg.IsRead, &msg.CreatedAt, &msg.ReadAt)
+		var signature sql.NullString
+		err := rows.Scan(&msg.ID, &senderEmail, &msg.Content, &signature, &msg.IsRead, &msg.CreatedAt, &msg.ReadAt)
 		if err != nil {
 			log.Printf("Failed to scan message: %v", err)
 			continue
 		}
 		msg.SenderEmail = senderEmail
 		msg.ReceiverEmail = userEmail
+		if signature.Valid {
+			msg.Signature = signature.String
+		}
 		messages = append(messages, msg)
 	}
 
@@ -825,7 +836,7 @@ func getSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get authenticated user from JWT context
+
 	userID, userEmail, err := getUserFromContext(r)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -837,7 +848,7 @@ func getSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// Get sent messages
+
 	rows, err := db.QueryContext(ctx, `
 		SELECT m.id, u.email, m.content, m.is_read, m.created_at, m.read_at
 		FROM Messages m
@@ -889,7 +900,7 @@ func markMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get authenticated user from JWT context
+
 	userID, _, err := getUserFromContext(r)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -918,7 +929,7 @@ func markMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	// Mark message as read (only if user is the receiver)
+
 	result, err := db.ExecContext(ctx,
 		"UPDATE Messages SET is_read = TRUE, read_at = NOW() WHERE id = $1 AND receiver_id = $2 AND is_read = FALSE",
 		req.MessageID, userID)
@@ -961,7 +972,7 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get authenticated user from JWT context
+
 	userID, _, err := getUserFromContext(r)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -990,7 +1001,7 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	// Soft delete message (mark as deleted for the user)
+
 	result, err := db.ExecContext(ctx, `
 		UPDATE Messages 
 		SET is_deleted_by_sender = CASE WHEN sender_id = $2 THEN TRUE ELSE is_deleted_by_sender END,
@@ -1036,7 +1047,7 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get authenticated user from JWT context
+
 	userID, _, err := getUserFromContext(r)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -1060,7 +1071,7 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate E2EE keys for the device
+
 	deviceKeys, err := e2ee.GenerateDeviceKeys(userID, req.DeviceName)
 	if err != nil {
 		log.Printf("Failed to generate device keys: %v", err)
@@ -1070,7 +1081,7 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If client provided a public key, use it instead
+
 	publicKey := deviceKeys.PublicKey
 	if req.PublicKey != "" {
 		publicKey = req.PublicKey
@@ -1079,7 +1090,7 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// Store device in database (only public key, never private key)
+
 	var deviceID int
 	err = db.QueryRowContext(ctx,
 		`INSERT INTO UserDevices (user_id, device_name, public_key, device_fingerprint) 
@@ -1099,7 +1110,7 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store private key in environment variable (not in DB)
+
 	if err := e2ee.StorePrivateKeyInEnv(deviceKeys.DeviceFingerprint, deviceKeys.PrivateKey); err != nil {
 		log.Printf("Warning: Failed to store private key in environment: %v", err)
 	}
@@ -1254,7 +1265,7 @@ func getDevicePublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get email and device_fingerprint from query params
+
 	email := r.URL.Query().Get("email")
 	deviceFingerprint := r.URL.Query().Get("device_fingerprint")
 
@@ -1294,4 +1305,298 @@ func getDevicePublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"public_key": publicKey,
 	})
+}
+
+// csrfTokenHandler generates and returns a new CSRF token
+func csrfTokenHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+		return
+	}
+
+	userID, userEmail, err := getUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		return
+	}
+
+
+	token, err := csrfStore.CreateToken(userEmail, csrf.DefaultExpiration)
+	if err != nil {
+		log.Printf("Failed to create CSRF token for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to generate CSRF token"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(CSRFTokenResponse{Token: token})
+}
+
+// totpSetupHandler initiates 2FA setup for a user
+func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+		return
+	}
+
+	userID, userEmail, err := getUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		return
+	}
+
+	var req TOTPSetupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		return
+	}
+
+
+	if !csrfStore.ValidateToken(userEmail, req.CSRFToken) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
+		return
+	}
+
+
+	secret, err := totp.GenerateSecret()
+	if err != nil {
+		log.Printf("Failed to generate TOTP secret for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to generate 2FA secret"})
+		return
+	}
+
+
+	_, err = db.Exec(`UPDATE Users SET totp_secret = $1 WHERE id = $2`, secret, userID)
+	if err != nil {
+		log.Printf("Failed to store TOTP secret for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to setup 2FA"})
+		return
+	}
+
+
+	qrCodeURL := totp.GenerateQRCodeURL(userEmail, "Komunikator", secret)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(TOTPSetupResponse{
+		Secret: secret,
+		QRCode: qrCodeURL,
+	})
+}
+
+// totpVerifyHandler verifies and enables 2FA for a user
+func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+		return
+	}
+
+	userID, userEmail, err := getUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		return
+	}
+
+	var req TOTPVerifyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		return
+	}
+
+
+	if !csrfStore.ValidateToken(userEmail, req.CSRFToken) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
+		return
+	}
+
+
+	var totpSecret string
+	err = db.QueryRow(`SELECT totp_secret FROM Users WHERE id = $1`, userID).Scan(&totpSecret)
+	if err != nil {
+		log.Printf("Failed to retrieve TOTP secret for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "2FA not setup"})
+		return
+	}
+
+	if totpSecret == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Please setup 2FA first"})
+		return
+	}
+
+
+	valid, err := totp.ValidateTOTP(totpSecret, req.Code, totp.DefaultConfig())
+	if err != nil {
+		log.Printf("Failed to validate TOTP for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Validation failed"})
+		return
+	}
+
+	if !valid {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid 2FA code"})
+		return
+	}
+
+
+	_, err = db.Exec(`UPDATE Users SET totp_enabled = TRUE, totp_verified_at = NOW() WHERE id = $1`, userID)
+	if err != nil {
+		log.Printf("Failed to enable 2FA for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to enable 2FA"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "2FA enabled successfully"})
+}
+
+// totpDisableHandler disables 2FA for a user
+func totpDisableHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+		return
+	}
+
+	userID, userEmail, err := getUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		return
+	}
+
+	var req TOTPVerifyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		return
+	}
+
+
+	if !csrfStore.ValidateToken(userEmail, req.CSRFToken) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
+		return
+	}
+
+
+	_, err = db.Exec(`UPDATE Users SET totp_enabled = FALSE, totp_secret = NULL WHERE id = $1`, userID)
+	if err != nil {
+		log.Printf("Failed to disable 2FA for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to disable 2FA"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "2FA disabled successfully"})
+}
+
+// totpValidateHandler validates a TOTP code during login
+func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+		return
+	}
+
+	var req TOTPValidateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		return
+	}
+
+
+	if err := validation.ValidateEmail(req.Email); err != false {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid email format"})
+		return
+	}
+
+
+	var userID int
+	var totpSecret string
+	var totpEnabled bool
+	err := db.QueryRow(`SELECT id, totp_secret, totp_enabled FROM Users WHERE email = $1`, req.Email).
+		Scan(&userID, &totpSecret, &totpEnabled)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid credentials"})
+		return
+	}
+
+	if !totpEnabled || totpSecret == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "2FA not enabled"})
+		return
+	}
+
+
+	valid, err := totp.ValidateTOTP(totpSecret, req.Code, totp.DefaultConfig())
+	if err != nil {
+		log.Printf("Failed to validate TOTP for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Validation failed"})
+		return
+	}
+
+	if !valid {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid 2FA code"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "2FA code valid"})
 }

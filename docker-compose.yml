@@ -1,9 +1,22 @@
 services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
   frontend:
     build:
       context: ./frontend
-    ports:
-      - "4321:4321"
+    expose:
+      - "4321"
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -14,8 +27,8 @@ services:
   backend:
     build:
       context: ./go-backend
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     volumes:
       - ./go-backend:/app
       - /app/tmp

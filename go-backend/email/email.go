@@ -12,7 +12,6 @@ import (
 )
 
 var (
-	// default SMTP configuration (can be overridden in tests)
 	smtpAddr      = "smtp.example.com:587"
 	smtpHost      = "smtp.example.com"
 	smtpUser      = "smtp-user"

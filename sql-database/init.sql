@@ -7,7 +7,10 @@ CREATE TABLE Users (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     is_blocked BOOLEAN DEFAULT FALSE,
     failed_login_attempts INTEGER DEFAULT 0,
-    locked_until TIMESTAMP WITH TIME ZONE
+    locked_until TIMESTAMP WITH TIME ZONE,
+    totp_secret TEXT,
+    totp_enabled BOOLEAN DEFAULT FALSE,
+    totp_verified_at TIMESTAMP WITH TIME ZONE
 );
 
 -- Create the UserDevices table for E2EE multi-device support
@@ -40,6 +43,7 @@ CREATE TABLE Messages (
     receiver_device_id INTEGER,
     content TEXT NOT NULL,
     encrypted_key TEXT,
+    message_signature TEXT,
     is_read BOOLEAN DEFAULT FALSE,
     is_deleted_by_sender BOOLEAN DEFAULT FALSE,
     is_deleted_by_receiver BOOLEAN DEFAULT FALSE,
