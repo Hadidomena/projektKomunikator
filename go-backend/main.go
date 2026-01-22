@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,10 +25,6 @@ import (
 	_ "github.com/lib/pq"
 )
 
-type TextSubmission struct {
-	Content string `json:"content"`
-}
-
 type RegistrationRequest struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
@@ -41,12 +38,13 @@ type LoginRequest struct {
 }
 
 type SendMessageRequest struct {
-	ReceiverEmail string `json:"receiver_email"`
-	Content       string `json:"content"`
-	DeviceID      int    `json:"device_id,omitempty"` // Optional: sender's device ID
-	Encrypted     bool   `json:"encrypted,omitempty"` // Is the message encrypted?
-	Signature     string `json:"signature,omitempty"` // Message signature for authenticity
-	CSRFToken     string `json:"csrf_token"`          // CSRF token
+	ReceiverEmail string                     `json:"receiver_email"`
+	Content       string                     `json:"content"`
+	DeviceID      int                        `json:"device_id,omitempty"`   // Optional: sender's device ID
+	Encrypted     bool                       `json:"encrypted,omitempty"`   // Is the message encrypted?
+	Signature     string                     `json:"signature,omitempty"`   // Message signature for authenticity
+	CSRFToken     string                     `json:"csrf_token"`            // CSRF token
+	Attachments   []message_utils.Attachment `json:"attachments,omitempty"` // Attachments (will be encrypted with message)
 }
 
 type RegisterDeviceRequest struct {
@@ -65,14 +63,15 @@ type DeviceResponse struct {
 }
 
 type MessageResponse struct {
-	ID            int        `json:"id"`
-	SenderEmail   string     `json:"sender_email"`
-	ReceiverEmail string     `json:"receiver_email"`
-	Content       string     `json:"content"`
-	Signature     string     `json:"signature,omitempty"`
-	IsRead        bool       `json:"is_read"`
-	CreatedAt     time.Time  `json:"created_at"`
-	ReadAt        *time.Time `json:"read_at,omitempty"`
+	ID            int                        `json:"id"`
+	SenderEmail   string                     `json:"sender_email"`
+	ReceiverEmail string                     `json:"receiver_email"`
+	Content       string                     `json:"content"`
+	Signature     string                     `json:"signature,omitempty"`
+	IsRead        bool                       `json:"is_read"`
+	CreatedAt     time.Time                  `json:"created_at"`
+	ReadAt        *time.Time                 `json:"read_at,omitempty"`
+	Attachments   []message_utils.Attachment `json:"attachments,omitempty"`
 }
 
 type ErrorResponse struct {
@@ -163,6 +162,7 @@ func main() {
 	http.HandleFunc("/api/messages", authMiddleware(getInboxHandler))
 	http.HandleFunc("/api/messages/mark-read", authMiddleware(markMessageAsReadHandler))
 	http.HandleFunc("/api/messages/sent", authMiddleware(getSentMessagesHandler))
+	http.HandleFunc("/api/messages/get", authMiddleware(getMessageHandler))
 
 	http.HandleFunc("/api/devices/register", authMiddleware(registerDeviceHandler))
 	http.HandleFunc("/api/devices", authMiddleware(listDevicesHandler))
@@ -170,7 +170,7 @@ func main() {
 
 	http.HandleFunc("/api/password-reset/request", handlers.PasswordResetRequestHandler)
 	http.HandleFunc("/api/password-reset/verify", handlers.PasswordResetVerifyHandler)
-	
+
 	http.HandleFunc("/api/login-history", authMiddleware(loginHistoryHandler))
 	http.HandleFunc("/api/admin/honeypot-stats", authMiddleware(honeypotStatsHandler))
 
@@ -313,7 +313,6 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	senderID, senderEmail, err := getUserFromContext(r)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -330,14 +329,12 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	if !csrfStore.ValidateToken(senderEmail, req.CSRFToken) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
 		return
 	}
-
 
 	if req.ReceiverEmail == "" || req.Content == "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -353,7 +350,6 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	if len(req.Content) > 10000 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -363,7 +359,6 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-
 
 	var receiverID int
 	err = db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(req.ReceiverEmail)).Scan(&receiverID)
@@ -380,7 +375,6 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to send message"})
 		return
 	}
-
 
 	messageContent := req.Content
 	var encryptedKey *string
@@ -432,7 +426,13 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 		encryptionKey := sharedSecret[:32]
 
-		encryptedContent, err := message_utils.EncryptMessage(req.Content, encryptionKey)
+		// Create message with attachments structure
+		msgWithAttachments := message_utils.MessageWithAttachments{
+			Content:     req.Content,
+			Attachments: req.Attachments,
+		}
+
+		encryptedContent, err := message_utils.EncryptMessageWithAttachments(msgWithAttachments, encryptionKey)
 		if err != nil {
 			log.Printf("Failed to encrypt message: %v", err)
 			w.Header().Set("Content-Type", "application/json")
@@ -447,7 +447,6 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 		req.DeviceID = receiverDeviceID
 	}
-
 
 	var messageID int
 	if encryptedKey != nil {
@@ -495,7 +494,6 @@ func getInboxHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	userID, userEmail, err := getUserFromContext(r)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -506,7 +504,6 @@ func getInboxHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-
 
 	rows, err := db.QueryContext(ctx, `
 		SELECT m.id, u.email, m.content, m.message_signature, m.is_read, m.created_at, m.read_at
@@ -563,7 +560,6 @@ func getSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	userID, userEmail, err := getUserFromContext(r)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -574,7 +570,6 @@ func getSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-
 
 	rows, err := db.QueryContext(ctx, `
 		SELECT m.id, u.email, m.content, m.is_read, m.created_at, m.read_at
@@ -627,7 +622,6 @@ func markMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	userID, _, err := getUserFromContext(r)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -655,7 +649,6 @@ func markMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-
 
 	result, err := db.ExecContext(ctx,
 		"UPDATE Messages SET is_read = TRUE, read_at = NOW() WHERE id = $1 AND receiver_id = $2 AND is_read = FALSE",
@@ -683,6 +676,182 @@ func markMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getMessageHandler retrieves a single message with decrypted content and attachments
+func getMessageHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, _, err := getUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	// Get message ID from query parameter
+	messageIDStr := r.URL.Query().Get("id")
+	if messageIDStr == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message ID required"})
+		return
+	}
+
+	messageID, err := strconv.Atoi(messageIDStr)
+	if err != nil || messageID <= 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid message ID"})
+		return
+	}
+
+	// Optional device ID for decryption
+	deviceIDStr := r.URL.Query().Get("device_id")
+	var deviceID int
+	if deviceIDStr != "" {
+		deviceID, _ = strconv.Atoi(deviceIDStr)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Get message details
+	var msg MessageResponse
+	var senderEmail, receiverEmail string
+	var senderID, receiverID int
+	var senderDeviceID, receiverDeviceID sql.NullInt64
+	var encryptedKey sql.NullString
+	var signature sql.NullString
+
+	err = db.QueryRowContext(ctx, `
+		SELECT m.id, m.sender_id, u1.email, m.receiver_id, u2.email, 
+		       m.content, m.encrypted_key, m.message_signature,
+		       m.sender_device_id, m.receiver_device_id,
+		       m.is_read, m.created_at, m.read_at
+		FROM Messages m
+		JOIN Users u1 ON m.sender_id = u1.id
+		JOIN Users u2 ON m.receiver_id = u2.id
+		WHERE m.id = $1 
+		  AND (m.sender_id = $2 OR m.receiver_id = $2)
+		  AND ((m.sender_id = $2 AND m.is_deleted_by_sender = FALSE) 
+		       OR (m.receiver_id = $2 AND m.is_deleted_by_receiver = FALSE))
+	`, messageID, userID).Scan(
+		&msg.ID, &senderID, &senderEmail, &receiverID, &receiverEmail,
+		&msg.Content, &encryptedKey, &signature,
+		&senderDeviceID, &receiverDeviceID,
+		&msg.IsRead, &msg.CreatedAt, &msg.ReadAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Message not found"})
+			return
+		}
+		log.Printf("Failed to get message: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve message"})
+		return
+	}
+
+	msg.SenderEmail = senderEmail
+	msg.ReceiverEmail = receiverEmail
+	if signature.Valid {
+		msg.Signature = signature.String
+	}
+
+	// Decrypt message if it's encrypted and user has access
+	if encryptedKey.Valid && encryptedKey.String == "e2ee" {
+		// Determine which device to use for decryption
+		var userDeviceID int
+		if userID == receiverID {
+			// User is receiver, use receiver's device
+			if deviceID > 0 {
+				userDeviceID = deviceID
+			} else if receiverDeviceID.Valid {
+				userDeviceID = int(receiverDeviceID.Int64)
+			}
+		} else if userID == senderID {
+			// User is sender, use sender's device
+			if deviceID > 0 {
+				userDeviceID = deviceID
+			} else if senderDeviceID.Valid {
+				userDeviceID = int(senderDeviceID.Int64)
+			}
+		}
+
+		if userDeviceID > 0 {
+			// Get user's device fingerprint and private key
+			var deviceFingerprint string
+			err = db.QueryRowContext(ctx,
+				"SELECT device_fingerprint FROM UserDevices WHERE id = $1 AND user_id = $2 AND is_active = TRUE",
+				userDeviceID, userID).Scan(&deviceFingerprint)
+
+			if err == nil {
+				userPrivateKey, err := e2ee.GetPrivateKeyFromEnv(deviceFingerprint)
+				if err == nil {
+					// Get the other party's public key
+					var otherPartyID int
+					var otherDeviceID int
+					if userID == receiverID {
+						otherPartyID = senderID
+						if senderDeviceID.Valid {
+							otherDeviceID = int(senderDeviceID.Int64)
+						}
+					} else {
+						otherPartyID = receiverID
+						if receiverDeviceID.Valid {
+							otherDeviceID = int(receiverDeviceID.Int64)
+						}
+					}
+
+					if otherDeviceID > 0 {
+						var otherPublicKey string
+						err = db.QueryRowContext(ctx,
+							"SELECT public_key FROM UserDevices WHERE id = $1 AND user_id = $2 AND is_active = TRUE",
+							otherDeviceID, otherPartyID).Scan(&otherPublicKey)
+
+						if err == nil {
+							// Compute shared secret and decrypt
+							sharedSecret, err := e2ee.ComputeSharedSecret(userPrivateKey, otherPublicKey)
+							if err == nil {
+								encryptionKey := sharedSecret[:32]
+
+								// Decrypt message with attachments
+								decryptedMsg, err := message_utils.DecryptMessageWithAttachments(msg.Content, encryptionKey)
+								if err == nil {
+									msg.Content = decryptedMsg.Content
+									msg.Attachments = decryptedMsg.Attachments
+								} else {
+									log.Printf("Failed to decrypt message: %v", err)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(msg)
+}
+
 // deleteMessageHandler soft-deletes a message
 func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -698,7 +867,6 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Only DELETE method is allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
 
 	userID, _, err := getUserFromContext(r)
 	if err != nil {
@@ -727,7 +895,6 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-
 
 	result, err := db.ExecContext(ctx, `
 		UPDATE Messages 
@@ -774,7 +941,6 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	userID, _, err := getUserFromContext(r)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -798,7 +964,6 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	deviceKeys, err := e2ee.GenerateDeviceKeys(userID, req.DeviceName)
 	if err != nil {
 		log.Printf("Failed to generate device keys: %v", err)
@@ -808,7 +973,6 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	publicKey := deviceKeys.PublicKey
 	if req.PublicKey != "" {
 		publicKey = req.PublicKey
@@ -816,7 +980,6 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-
 
 	var deviceID int
 	err = db.QueryRowContext(ctx,
@@ -836,7 +999,6 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to register device"})
 		return
 	}
-
 
 	if err := e2ee.StorePrivateKeyInEnv(deviceKeys.DeviceFingerprint, deviceKeys.PrivateKey); err != nil {
 		log.Printf("Warning: Failed to store private key in environment: %v", err)
@@ -992,7 +1154,6 @@ func getDevicePublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	email := r.URL.Query().Get("email")
 	deviceFingerprint := r.URL.Query().Get("device_fingerprint")
 
@@ -1051,7 +1212,6 @@ func csrfTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	token, err := csrfStore.CreateToken(userEmail, csrf.DefaultExpiration)
 	if err != nil {
 		log.Printf("Failed to create CSRF token for user %d: %v", userID, err)
@@ -1091,14 +1251,12 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	if !csrfStore.ValidateToken(userEmail, req.CSRFToken) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
 		return
 	}
-
 
 	secret, err := totp.GenerateSecret()
 	if err != nil {
@@ -1109,7 +1267,6 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	_, err = db.Exec(`UPDATE Users SET totp_secret = $1 WHERE id = $2`, secret, userID)
 	if err != nil {
 		log.Printf("Failed to store TOTP secret for user %d: %v", userID, err)
@@ -1118,7 +1275,6 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to setup 2FA"})
 		return
 	}
-
 
 	qrCodeURL := totp.GenerateQRCodeURL(userEmail, "Komunikator", secret)
 
@@ -1155,14 +1311,12 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	if !csrfStore.ValidateToken(userEmail, req.CSRFToken) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
 		return
 	}
-
 
 	var totpSecret string
 	err = db.QueryRow(`SELECT totp_secret FROM Users WHERE id = $1`, userID).Scan(&totpSecret)
@@ -1181,7 +1335,6 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	valid, err := totp.ValidateTOTP(totpSecret, req.Code, totp.DefaultConfig())
 	if err != nil {
 		log.Printf("Failed to validate TOTP for user %d: %v", userID, err)
@@ -1197,7 +1350,6 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid 2FA code"})
 		return
 	}
-
 
 	_, err = db.Exec(`UPDATE Users SET totp_enabled = TRUE, totp_verified_at = NOW() WHERE id = $1`, userID)
 	if err != nil {
@@ -1238,14 +1390,12 @@ func totpDisableHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	if !csrfStore.ValidateToken(userEmail, req.CSRFToken) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
 		return
 	}
-
 
 	_, err = db.Exec(`UPDATE Users SET totp_enabled = FALSE, totp_secret = NULL WHERE id = $1`, userID)
 	if err != nil {
@@ -1278,14 +1428,12 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	if err := validation.ValidateEmail(req.Email); err != false {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid email format"})
 		return
 	}
-
 
 	var userID int
 	var totpSecret string
@@ -1305,7 +1453,6 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "2FA not enabled"})
 		return
 	}
-
 
 	valid, err := totp.ValidateTOTP(totpSecret, req.Code, totp.DefaultConfig())
 	if err != nil {
