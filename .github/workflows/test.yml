@@ -20,6 +20,10 @@ jobs:
           - './message_utils'
           - './password_utils'
           - './validation'
+          - './csrf'
+          - './e2ee'  
+          - './totp'
+          - './message_auth'
 
     steps:
     - name: Checkout repository
