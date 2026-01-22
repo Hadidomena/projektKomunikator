@@ -145,7 +145,6 @@ func main() {
 
 	handlers.Initialize(db, csrfStore, loginTracker)
 
-	http.HandleFunc("/api/texts", textsHandler)
 	http.HandleFunc("/api/register", handlers.RegisterHandler)
 	http.HandleFunc("/api/login", handlers.LoginHandler)
 	http.HandleFunc("/api/check-password-strength", handlers.CheckPasswordStrengthHandler)
@@ -253,48 +252,6 @@ func honeypotStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 func getUserFromContext(r *http.Request) (int, string, error) {
 	return handlers.GetUserFromContext(r)
-}
-
-func textsHandler(w http.ResponseWriter, r *http.Request) {
-
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var submission TextSubmission
-	err := json.NewDecoder(r.Body).Decode(&submission)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	_, err = db.ExecContext(ctx, "INSERT INTO Texts (content) VALUES ($1)", submission.Content)
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			http.Error(w, "Request timeout", http.StatusRequestTimeout)
-			log.Printf("Database operation timeout: %v", err)
-			return
-		}
-		http.Error(w, "Failed to insert text into database", http.StatusInternalServerError)
-		log.Printf("Failed to insert text: %v", err)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "Text successfully submitted")
 }
 
 // sendMessageHandler handles sending messages between users

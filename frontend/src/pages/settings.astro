@@ -139,11 +139,11 @@
     async function check2FAStatus() {
       // This would need a backend endpoint to check status
       // For now, we'll show the enable button
-      document.getElementById('totp-disabled').classList.remove('hidden');
+      document.getElementById('totp-disabled')?.classList.remove('hidden');
     }
 
     // 2FA Management
-    document.getElementById('enable2faBtn').addEventListener('click', async () => {
+    document.getElementById('enable2faBtn')?.addEventListener('click', async () => {
       try {
         const response = await fetch(`${API_URL}/api/2fa/setup`, {
           method: 'POST',
@@ -153,9 +153,12 @@
         const data = await response.json();
 
         if (response.ok) {
-          document.getElementById('totp-disabled').classList.add('hidden');
-          document.getElementById('totp-setup').classList.remove('hidden');
-          document.getElementById('qrCodeContainer').innerHTML = `<img src="${data.qr_code}" alt="QR Code" />`;
+          document.getElementById('totp-disabled')?.classList.add('hidden');
+          document.getElementById('totp-setup')?.classList.remove('hidden');
+          const qrContainer = document.getElementById('qrCodeContainer');
+          if (qrContainer) {
+            qrContainer.innerHTML = `<img src="${data.qr_code}" alt="QR Code" />`;
+          }
         } else {
           showMessage('enable2faMessage', data.message, true);
         }
@@ -164,7 +167,7 @@
       }
     });
 
-    document.getElementById('verify2faBtn').addEventListener('click', async () => {
+    document.getElementById('verify2faBtn')?.addEventListener('click', async () => {
       const code = (document.getElementById('verifyCode') as HTMLInputElement).value;
       
       try {
@@ -180,8 +183,8 @@
         const data = await response.json();
 
         if (response.ok) {
-          document.getElementById('totp-setup').classList.add('hidden');
-          document.getElementById('totp-enabled').classList.remove('hidden');
+          document.getElementById('totp-setup')?.classList.add('hidden');
+          document.getElementById('totp-enabled')?.classList.remove('hidden');
           showMessage('verify2faMessage', '2FA enabled successfully!', false);
         } else {
           showMessage('verify2faMessage', data.message, true);
@@ -191,7 +194,7 @@
       }
     });
 
-    document.getElementById('disable2faBtn').addEventListener('click', async () => {
+    document.getElementById('disable2faBtn')?.addEventListener('click', async () => {
       if (!confirm('Are you sure you want to disable 2FA?')) return;
 
       try {
@@ -201,8 +204,8 @@
         });
 
         if (response.ok) {
-          document.getElementById('totp-enabled').classList.add('hidden');
-          document.getElementById('totp-disabled').classList.remove('hidden');
+          document.getElementById('totp-enabled')?.classList.add('hidden');
+          document.getElementById('totp-disabled')?.classList.remove('hidden');
           showMessage('disable2faMessage', '2FA disabled', false);
         }
       } catch (error) {
@@ -211,7 +214,7 @@
     });
 
     // Device Management
-    document.getElementById('registerDeviceBtn').addEventListener('click', async () => {
+    document.getElementById('registerDeviceBtn')?.addEventListener('click', async () => {
       const deviceName = prompt('Enter device name:');
       if (!deviceName) return;
 
@@ -246,6 +249,8 @@
 
         const devices = await response.json();
         const container = document.getElementById('deviceList');
+
+        if (!container) return;
 
         if (devices.length === 0) {
           container.innerHTML = '<p style="color: #999;">No devices registered</p>';
@@ -302,6 +307,8 @@
         const history = await response.json();
         const container = document.getElementById('loginHistory');
 
+        if (!container) return;
+
         if (history.length === 0) {
           container.innerHTML = '<p style="color: #999;">No login history</p>';
           return;
@@ -328,6 +335,8 @@
         const stats = await response.json();
         const container = document.getElementById('honeypotStats');
 
+        if (!container) return;
+
         container.innerHTML = `
           <div class="stat-card">
             <div class="stat-value">${stats.total_attempts || 0}</div>
@@ -343,7 +352,10 @@
           </div>
         `;
       } catch (error) {
-        document.getElementById('honeypotStats').innerHTML = '<p style="color: #999;">Stats unavailable</p>';
+        const statsContainer = document.getElementById('honeypotStats');
+        if (statsContainer) {
+          statsContainer.innerHTML = '<p style="color: #999;">Stats unavailable</p>';
+        }
       }
     }
 
