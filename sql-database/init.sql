@@ -71,15 +71,3 @@ CREATE TABLE Messages (
 CREATE INDEX idx_messages_receiver ON Messages(receiver_id) WHERE is_deleted_by_receiver = FALSE;
 CREATE INDEX idx_messages_sender ON Messages(sender_id) WHERE is_deleted_by_sender = FALSE;
 CREATE INDEX idx_messages_unread ON Messages(receiver_id, is_read) WHERE is_deleted_by_receiver = FALSE;
-
--- Keep the Texts table for backward compatibility (can be removed later)
-CREATE TABLE Texts (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    content TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_user
-        FOREIGN KEY(user_id)
-        REFERENCES Users(id)
-        ON DELETE CASCADE
-);

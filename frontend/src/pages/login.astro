@@ -1,0 +1,167 @@
+---
+// Login page
+---
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width" />
+  <title>Login - Communicator</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .container { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); width: 100%; max-width: 400px; }
+    h1 { color: #333; margin-bottom: 30px; text-align: center; font-size: 28px; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; margin-bottom: 5px; color: #555; font-weight: 500; }
+    input[type="email"], input[type="password"], input[type="text"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; transition: border-color 0.3s; }
+    input[type="email"]:focus, input[type="password"]:focus, input[type="text"]:focus { outline: none; border-color: #667eea; }
+    button { width: 100%; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.2s; }
+    button:hover { transform: translateY(-2px); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .message { margin-top: 15px; padding: 10px; border-radius: 5px; text-align: center; font-size: 14px; }
+    .message.error { background: #fee; color: #c33; border: 1px solid #fcc; }
+    .message.success { background: #efe; color: #3c3; border: 1px solid #cfc; }
+    .links { margin-top: 20px; text-align: center; }
+    .links a { color: #667eea; text-decoration: none; font-size: 14px; }
+    .links a:hover { text-decoration: underline; }
+    .totp-section { display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd; }
+    .totp-section.active { display: block; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔐 Login</h1>
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password" />
+      </div>
+      <button type="submit" id="loginBtn">Login</button>
+      
+      <div class="totp-section" id="totpSection">
+        <div class="form-group">
+          <label for="totpCode">2FA Code (TOTP)</label>
+          <input type="text" id="totpCode" name="totpCode" placeholder="Enter 6-digit code" maxlength="6" pattern="[0-9]{6}" />
+        </div>
+        <button type="button" id="verifyTotpBtn">Verify 2FA</button>
+      </div>
+    </form>
+    <div id="message"></div>
+    <div class="links">
+      <a href="/register">Don't have an account? Register</a><br>
+      <a href="/reset-password">Forgot password?</a><br>
+      <a href="/">← Back to home</a>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'http://localhost:8080';
+    let tempToken = '';
+    let requiresTotp = false;
+
+    const loginForm = document.getElementById('loginForm') as HTMLFormElement;
+    const loginBtn = document.getElementById('loginBtn') as HTMLButtonElement;
+    const messageEl = document.getElementById('message') as HTMLDivElement;
+    const totpSection = document.getElementById('totpSection') as HTMLDivElement;
+    const verifyTotpBtn = document.getElementById('verifyTotpBtn') as HTMLButtonElement;
+
+    function showMessage(text: string, isError: boolean = false) {
+      messageEl.textContent = text;
+      messageEl.className = `message ${isError ? 'error' : 'success'}`;
+      messageEl.style.display = 'block';
+    }
+
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const email = (document.getElementById('email') as HTMLInputElement).value;
+      const password = (document.getElementById('password') as HTMLInputElement).value;
+
+      loginBtn.disabled = true;
+      loginBtn.textContent = 'Logging in...';
+      
+      try {
+        const response = await fetch(`${API_URL}/api/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          if (data.requires_totp) {
+            // Need TOTP verification
+            requiresTotp = true;
+            tempToken = data.temp_token || '';
+            totpSection.classList.add('active');
+            showMessage('Please enter your 2FA code', false);
+          } else {
+            // Login successful
+            localStorage.setItem('jwt_token', data.token);
+            localStorage.setItem('user_email', email);
+            showMessage('Login successful! Redirecting...', false);
+            setTimeout(() => window.location.href = '/dashboard', 1000);
+          }
+        } else {
+          showMessage(data.message || 'Login failed', true);
+        }
+      } catch (error) {
+        console.error('Login error:', error);
+        showMessage('Network error. Please try again.', true);
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Login';
+      }
+    });
+
+    verifyTotpBtn.addEventListener('click', async () => {
+      const totpCode = (document.getElementById('totpCode') as HTMLInputElement).value;
+      
+      if (!totpCode || totpCode.length !== 6) {
+        showMessage('Please enter a valid 6-digit code', true);
+        return;
+      }
+
+      verifyTotpBtn.disabled = true;
+      verifyTotpBtn.textContent = 'Verifying...';
+
+      try {
+        const email = (document.getElementById('email') as HTMLInputElement).value;
+        const password = (document.getElementById('password') as HTMLInputElement).value;
+
+        const response = await fetch(`${API_URL}/api/2fa/validate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            password,
+            totp_code: totpCode
+          })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          localStorage.setItem('jwt_token', data.token);
+          localStorage.setItem('user_email', email);
+          showMessage('2FA verification successful! Redirecting...', false);
+          setTimeout(() => window.location.href = '/dashboard', 1000);
+        } else {
+          showMessage(data.message || '2FA verification failed', true);
+        }
+      } catch (error) {
+        console.error('2FA verification error:', error);
+        showMessage('Network error. Please try again.', true);
+      } finally {
+        verifyTotpBtn.disabled = false;
+        verifyTotpBtn.textContent = 'Verify 2FA';
+      }
+    });
+  </script>
+</body>
+</html>

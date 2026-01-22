@@ -1,0 +1,476 @@
+---
+// Dashboard with messaging and attachments support
+---
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width" />
+  <title>Dashboard - Communicator</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .header h1 { font-size: 24px; }
+    .user-info { display: flex; align-items: center; gap: 15px; }
+    .logout-btn { background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-size: 14px; }
+    .logout-btn:hover { background: rgba(255,255,255,0.3); }
+    .container { max-width: 1200px; margin: 30px auto; padding: 0 20px; }
+    .compose-section { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 30px; }
+    .compose-section h2 { margin-bottom: 20px; color: #333; }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; color: #555; font-weight: 500; }
+    .form-group input, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; font-family: inherit; }
+    .form-group textarea { min-height: 100px; resize: vertical; }
+    .file-upload { border: 2px dashed #ddd; padding: 20px; text-align: center; border-radius: 5px; cursor: pointer; transition: all 0.3s; }
+    .file-upload:hover { border-color: #667eea; background: #f8f9ff; }
+    .file-upload.dragover { border-color: #667eea; background: #f0f2ff; }
+    .file-list { margin-top: 10px; }
+    .file-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 5px; margin-top: 5px; }
+    .file-item-info { display: flex; align-items: center; gap: 10px; }
+    .file-icon { font-size: 20px; }
+    .file-size { color: #666; font-size: 12px; }
+    .remove-file { background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 12px; }
+    .remove-file:hover { background: #c82333; }
+    .send-btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 30px; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold; }
+    .send-btn:hover { opacity: 0.9; }
+    .send-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .messages-section { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .messages-section h2 { margin-bottom: 20px; color: #333; }
+    .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eee; }
+    .tab { padding: 10px 20px; cursor: pointer; border: none; background: none; font-size: 14px; font-weight: 500; color: #666; transition: all 0.3s; }
+    .tab.active { color: #667eea; border-bottom: 2px solid #667eea; }
+    .message-list { max-height: 600px; overflow-y: auto; }
+    .message-item { border: 1px solid #e0e0e0; border-radius: 5px; padding: 15px; margin-bottom: 10px; cursor: pointer; transition: all 0.3s; }
+    .message-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .message-item.unread { background: #f0f7ff; border-left: 4px solid #667eea; }
+    .message-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .message-from { font-weight: bold; color: #333; }
+    .message-date { font-size: 12px; color: #999; }
+    .message-preview { color: #666; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .message-attachments { margin-top: 5px; font-size: 12px; color: #667eea; }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+    .modal.active { display: flex; justify-content: center; align-items: center; }
+    .modal-content { background: white; border-radius: 10px; padding: 30px; max-width: 800px; width: 90%; max-height: 90vh; overflow-y: auto; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .modal-header h3 { color: #333; }
+    .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #999; }
+    .close-btn:hover { color: #333; }
+    .message-full { }
+    .message-full .from { font-weight: bold; color: #667eea; margin-bottom: 5px; }
+    .message-full .date { font-size: 12px; color: #999; margin-bottom: 15px; }
+    .message-full .content { color: #333; line-height: 1.6; margin-bottom: 20px; white-space: pre-wrap; }
+    .attachment-list { }
+    .attachment-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f8f9fa; border-radius: 5px; margin-bottom: 10px; }
+    .download-btn { background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-size: 14px; }
+    .download-btn:hover { background: #218838; }
+    .loading { text-align: center; padding: 40px; color: #999; }
+    .error { background: #fee; color: #c33; padding: 15px; border-radius: 5px; border: 1px solid #fcc; margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>💬 Communicator</h1>
+    <div class="user-info">
+      <span id="userEmail">Loading...</span>
+      <a href="/settings" style="color: white; text-decoration: none; margin-right: 15px;">⚙️ Settings</a>
+      <button class="logout-btn" id="logoutBtn">Logout</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- Compose Message -->
+    <div class="compose-section">
+      <h2>✉️ Send Message</h2>
+      <form id="composeForm">
+        <div class="form-group">
+          <label for="receiverEmail">To:</label>
+          <input type="email" id="receiverEmail" required placeholder="recipient@example.com" />
+        </div>
+        <div class="form-group">
+          <label for="messageContent">Message:</label>
+          <textarea id="messageContent" required placeholder="Type your message..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Attachments:</label>
+          <div class="file-upload" id="fileUpload">
+            <input type="file" id="fileInput" multiple hidden />
+            📎 Click or drag files here to attach<br>
+            <small>Max 10MB per file</small>
+          </div>
+          <div class="file-list" id="fileList"></div>
+        </div>
+        <button type="submit" class="send-btn" id="sendBtn">Send Message 🚀</button>
+      </form>
+    </div>
+
+    <!-- Messages -->
+    <div class="messages-section">
+      <h2>📬 Messages</h2>
+      <div class="tabs">
+        <button class="tab active" data-tab="inbox">Inbox</button>
+        <button class="tab" data-tab="sent">Sent</button>
+      </div>
+      <div id="messageContainer"></div>
+    </div>
+  </div>
+
+  <!-- Message Detail Modal -->
+  <div class="modal" id="messageModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Message Details</h3>
+        <button class="close-btn" id="closeModal">×</button>
+      </div>
+      <div id="messageDetail"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'http://localhost:8080';
+    let currentFiles: File[] = [];
+    let currentTab = 'inbox';
+    let csrfToken = '';
+
+    // Auth check
+    const token = localStorage.getItem('jwt_token');
+    const userEmail = localStorage.getItem('user_email');
+
+    if (!token || !userEmail) {
+      window.location.href = '/login';
+    }
+
+    document.getElementById('userEmail')!.textContent = userEmail;
+
+    // Logout
+    document.getElementById('logoutBtn')!.addEventListener('click', () => {
+      localStorage.removeItem('jwt_token');
+      localStorage.removeItem('user_email');
+      window.location.href = '/login';
+    });
+
+    // Get CSRF token
+    async function getCsrfToken() {
+      try {
+        const response = await fetch(`${API_URL}/api/csrf-token`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        csrfToken = data.csrf_token;
+      } catch (error) {
+        console.error('Failed to get CSRF token:', error);
+      }
+    }
+
+    // File upload handling
+    const fileUpload = document.getElementById('fileUpload')!;
+    const fileInput = document.getElementById('fileInput')! as HTMLInputElement;
+    const fileList = document.getElementById('fileList')!;
+
+    fileUpload.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || []);
+      addFiles(files);
+    });
+
+    fileUpload.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      fileUpload.classList.add('dragover');
+    });
+
+    fileUpload.addEventListener('dragleave', () => {
+      fileUpload.classList.remove('dragover');
+    });
+
+    fileUpload.addEventListener('drop', (e) => {
+      e.preventDefault();
+      fileUpload.classList.remove('dragover');
+      const files = Array.from(e.dataTransfer?.files || []);
+      addFiles(files);
+    });
+
+    function addFiles(files: File[]) {
+      for (const file of files) {
+        if (file.size > 10 * 1024 * 1024) {
+          alert(`File ${file.name} is too large (max 10MB)`);
+          continue;
+        }
+        currentFiles.push(file);
+      }
+      renderFileList();
+    }
+
+    function renderFileList() {
+      fileList.innerHTML = '';
+      currentFiles.forEach((file, index) => {
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
+        fileItem.innerHTML = `
+          <div class="file-item-info">
+            <span class="file-icon">📄</span>
+            <span>${file.name}</span>
+            <span class="file-size">(${formatFileSize(file.size)})</span>
+          </div>
+          <button type="button" class="remove-file" data-index="${index}">Remove</button>
+        `;
+        fileList.appendChild(fileItem);
+      });
+
+      // Add remove handlers
+      document.querySelectorAll('.remove-file').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const index = parseInt((e.target as HTMLElement).dataset.index || '0');
+          currentFiles.splice(index, 1);
+          renderFileList();
+        });
+      });
+    }
+
+    function formatFileSize(bytes: number): string {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    // Send message
+    document.getElementById('composeForm')!.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const receiverEmail = (document.getElementById('receiverEmail')! as HTMLInputElement).value;
+      const messageContent = (document.getElementById('messageContent')! as HTMLTextAreaElement).value;
+      const sendBtn = document.getElementById('sendBtn')! as HTMLButtonElement;
+
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Sending...';
+
+      try {
+        // Convert files to base64 attachments
+        const attachments = await Promise.all(currentFiles.map(async (file) => {
+          const buffer = await file.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          return {
+            filename: file.name,
+            content_type: file.type || 'application/octet-stream',
+            size: file.size,
+            data: base64
+          };
+        }));
+
+        const response = await fetch(`${API_URL}/api/messages/send`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            receiver_email: receiverEmail,
+            content: messageContent,
+            encrypted: true,
+            device_id: 0, // Will use default device
+            csrf_token: csrfToken,
+            attachments: attachments
+          })
+        });
+
+        if (response.ok) {
+          alert('Message sent successfully!');
+          (document.getElementById('composeForm')! as HTMLFormElement).reset();
+          currentFiles = [];
+          renderFileList();
+          loadMessages();
+        } else {
+          const error = await response.json();
+          alert(`Failed to send message: ${error.message}`);
+        }
+      } catch (error) {
+        console.error('Send error:', error);
+        alert('Network error. Please try again.');
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Send Message 🚀';
+      }
+    });
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        (e.target as HTMLElement).classList.add('active');
+        currentTab = (e.target as HTMLElement).dataset.tab || 'inbox';
+        loadMessages();
+      });
+    });
+
+    // Load messages
+    async function loadMessages() {
+      const container = document.getElementById('messageContainer')!;
+      container.innerHTML = '<div class="loading">Loading messages...</div>';
+
+      const endpoint = currentTab === 'inbox' ? '/api/messages' : '/api/messages/sent';
+
+      try {
+        const response = await fetch(`${API_URL}${endpoint}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error('Failed to load messages');
+
+        const messages = await response.json();
+
+        if (messages.length === 0) {
+          container.innerHTML = '<div class="loading">No messages</div>';
+          return;
+        }
+
+        container.innerHTML = '<div class="message-list"></div>';
+        const messageList = container.querySelector('.message-list')!;
+
+        messages.forEach((msg: any) => {
+          const messageItem = document.createElement('div');
+          messageItem.className = `message-item ${!msg.is_read && currentTab === 'inbox' ? 'unread' : ''}`;
+          messageItem.setAttribute('data-message-id', msg.id);
+          
+          const fromEmail = currentTab === 'inbox' ? msg.sender_email : msg.receiver_email;
+          const preview = msg.content.length > 100 ? msg.content.substring(0, 100) + '...' : msg.content;
+          
+          messageItem.innerHTML = `
+            <div class="message-header">
+              <span class="message-from">${currentTab === 'inbox' ? 'From' : 'To'}: ${fromEmail}</span>
+              <span class="message-date">${new Date(msg.created_at).toLocaleString()}</span>
+            </div>
+            <div class="message-preview">${preview}</div>
+            ${msg.attachments && msg.attachments.length > 0 ? `<div class="message-attachments">📎 ${msg.attachments.length} attachment(s)</div>` : ''}
+          `;
+          
+          messageItem.addEventListener('click', () => openMessage(msg.id));
+          messageList.appendChild(messageItem);
+        });
+      } catch (error) {
+        console.error('Load messages error:', error);
+        container.innerHTML = '<div class="error">Failed to load messages</div>';
+      }
+    }
+
+    // Open message detail
+    async function openMessage(messageId: number) {
+      const modal = document.getElementById('messageModal')!;
+      const detail = document.getElementById('messageDetail')!;
+      
+      modal.classList.add('active');
+      detail.innerHTML = '<div class="loading">Loading...</div>';
+
+      try {
+        const response = await fetch(`${API_URL}/api/messages/get?id=${messageId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error('Failed to load message');
+
+        const msg = await response.json();
+
+        // Mark message as read if it's in inbox and unread
+        if (currentTab === 'inbox' && !msg.is_read) {
+          markMessageAsRead(messageId);
+        }
+
+        let attachmentsHtml = '';
+        if (msg.attachments && msg.attachments.length > 0) {
+          attachmentsHtml = '<h4>Attachments:</h4><div class="attachment-list">';
+          msg.attachments.forEach((att: any, index: number) => {
+            attachmentsHtml += `
+              <div class="attachment-item">
+                <div>
+                  <span class="file-icon">📄</span>
+                  <strong>${att.filename}</strong>
+                  <span class="file-size">(${formatFileSize(att.size)})</span>
+                </div>
+                <button class="download-btn" onclick="downloadAttachment(${index}, '${att.filename}', '${att.content_type}', '${att.data}')">
+                  Download
+                </button>
+              </div>
+            `;
+          });
+          attachmentsHtml += '</div>';
+        }
+
+        detail.innerHTML = `
+          <div class="message-full">
+            <div class="from">${currentTab === 'inbox' ? 'From' : 'To'}: ${currentTab === 'inbox' ? msg.sender_email : msg.receiver_email}</div>
+            <div class="date">${new Date(msg.created_at).toLocaleString()}</div>
+            <div class="content">${msg.content}</div>
+            ${attachmentsHtml}
+          </div>
+        `;
+      } catch (error) {
+        console.error('Open message error:', error);
+        detail.innerHTML = '<div class="error">Failed to load message</div>';
+      }
+    }
+
+    // Download attachment
+    (window as any).downloadAttachment = function(index: number, filename: string, contentType: string, base64Data: string) {
+      try {
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        const blob = new Blob([bytes], { type: contentType });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        console.error('Download error:', error);
+        alert('Failed to download attachment');
+      }
+    };
+
+    // Mark message as read
+    async function markMessageAsRead(messageId: number) {
+      try {
+        const response = await fetch(`${API_URL}/api/messages/mark-read`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ message_id: messageId })
+        });
+
+        if (response.ok) {
+          // Update UI - remove unread styling from the message item
+          const messageItem = document.querySelector(`[data-message-id="${messageId}"]`);
+          if (messageItem) {
+            messageItem.classList.remove('unread');
+          }
+        }
+      } catch (error) {
+        console.error('Error marking message as read:', error);
+      }
+    }
+
+    // Close modal
+    document.getElementById('closeModal')!.addEventListener('click', () => {
+      document.getElementById('messageModal')!.classList.remove('active');
+    });
+
+    // Click outside modal to close
+    document.getElementById('messageModal')!.addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) {
+        (e.target as HTMLElement).classList.remove('active');
+      }
+    });
+
+    // Initialize
+    getCsrfToken();
+    loadMessages();
+  </script>
+</body>
+</html>

@@ -1,0 +1,362 @@
+---
+// Settings page for 2FA, devices, and account management
+---
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width" />
+  <title>Settings - Communicator</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .header h1 { font-size: 24px; }
+    .back-btn { background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; }
+    .back-btn:hover { background: rgba(255,255,255,0.3); }
+    .container { max-width: 1000px; margin: 30px auto; padding: 0 20px; }
+    .section { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
+    .section h2 { margin-bottom: 15px; color: #333; font-size: 20px; }
+    .section p { color: #666; margin-bottom: 15px; font-size: 14px; }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; color: #555; font-weight: 500; font-size: 14px; }
+    .form-group input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
+    button { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: 500; }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    button.danger { background: linear-gradient(135deg, #f56565 0%, #c53030 100%); }
+    button.success { background: linear-gradient(135deg, #48bb78 0%, #2f855a 100%); }
+    .qr-code { text-align: center; margin: 20px 0; }
+    .qr-code img { max-width: 300px; border: 2px solid #ddd; border-radius: 10px; padding: 10px; background: white; }
+    .message { margin-top: 15px; padding: 10px; border-radius: 5px; font-size: 14px; display: none; }
+    .message.error { background: #fee; color: #c33; border: 1px solid #fcc; display: block; }
+    .message.success { background: #efe; color: #3c3; border: 1px solid #cfc; display: block; }
+    .device-list { margin-top: 15px; }
+    .device-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f8f9fa; border-radius: 5px; margin-bottom: 10px; }
+    .device-info { flex: 1; }
+    .device-name { font-weight: 600; color: #333; }
+    .device-fingerprint { font-size: 12px; color: #999; margin-top: 3px; font-family: monospace; }
+    .device-date { font-size: 12px; color: #666; margin-top: 3px; }
+    .status-badge { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; margin-left: 10px; }
+    .status-badge.active { background: #c6f6d5; color: #22543d; }
+    .status-badge.inactive { background: #fed7d7; color: #742a2a; }
+    .hidden { display: none; }
+    .login-history { margin-top: 15px; max-height: 400px; overflow-y: auto; }
+    .login-item { padding: 10px; background: #f8f9fa; border-radius: 5px; margin-bottom: 8px; font-size: 13px; }
+    .login-item .ip { font-weight: 600; color: #667eea; }
+    .login-item .date { color: #999; font-size: 12px; }
+    .login-item .device { color: #666; font-size: 12px; margin-top: 3px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px; }
+    .stat-card { background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center; }
+    .stat-value { font-size: 32px; font-weight: bold; color: #667eea; }
+    .stat-label { font-size: 12px; color: #666; margin-top: 5px; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>⚙️ Settings</h1>
+    <a href="/dashboard" class="back-btn">← Back to Dashboard</a>
+  </div>
+
+  <div class="container">
+    <!-- 2FA Section -->
+    <div class="section">
+      <h2>🔐 Two-Factor Authentication (2FA)</h2>
+      <p>Enhance your account security with TOTP-based 2FA</p>
+      
+      <div id="totp-disabled" class="hidden">
+        <button id="enable2faBtn">Enable 2FA</button>
+        <div id="enable2faMessage" class="message"></div>
+      </div>
+
+      <div id="totp-setup" class="hidden">
+        <p><strong>Step 1:</strong> Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
+        <div class="qr-code" id="qrCodeContainer"></div>
+        <p><strong>Step 2:</strong> Enter the 6-digit code from your app to verify</p>
+        <div class="form-group">
+          <input type="text" id="verifyCode" placeholder="Enter 6-digit code" maxlength="6" pattern="[0-9]{6}" />
+        </div>
+        <button id="verify2faBtn">Verify and Enable 2FA</button>
+        <div id="verify2faMessage" class="message"></div>
+      </div>
+
+      <div id="totp-enabled" class="hidden">
+        <p class="message success">✓ 2FA is currently enabled for your account</p>
+        <button class="danger" id="disable2faBtn">Disable 2FA</button>
+        <div id="disable2faMessage" class="message"></div>
+      </div>
+    </div>
+
+    <!-- Devices Section -->
+    <div class="section">
+      <h2>📱 Devices</h2>
+      <p>Manage devices that can decrypt your messages</p>
+      
+      <button id="registerDeviceBtn">Register New Device</button>
+      <div id="registerDeviceMessage" class="message"></div>
+      
+      <div class="device-list" id="deviceList">
+        <p style="color: #999;">Loading devices...</p>
+      </div>
+    </div>
+
+    <!-- Login History -->
+    <div class="section">
+      <h2>📊 Login History</h2>
+      <p>Recent login attempts from your account</p>
+      <div class="login-history" id="loginHistory">
+        <p style="color: #999;">Loading...</p>
+      </div>
+    </div>
+
+    <!-- Honeypot Stats (Admin) -->
+    <div class="section">
+      <h2>🍯 Security Stats</h2>
+      <p>Bot detection statistics</p>
+      <div class="stats" id="honeypotStats">
+        <p style="color: #999;">Loading...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'http://localhost:8080';
+    const token = localStorage.getItem('jwt_token');
+
+    if (!token) {
+      window.location.href = '/login';
+    }
+
+    let totpEnabled = false;
+
+    // Check 2FA status and load data
+    async function init() {
+      await check2FAStatus();
+      await loadDevices();
+      await loadLoginHistory();
+      await loadHoneypotStats();
+    }
+
+    async function check2FAStatus() {
+      // This would need a backend endpoint to check status
+      // For now, we'll show the enable button
+      document.getElementById('totp-disabled').classList.remove('hidden');
+    }
+
+    // 2FA Management
+    document.getElementById('enable2faBtn').addEventListener('click', async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/2fa/setup`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          document.getElementById('totp-disabled').classList.add('hidden');
+          document.getElementById('totp-setup').classList.remove('hidden');
+          document.getElementById('qrCodeContainer').innerHTML = `<img src="${data.qr_code}" alt="QR Code" />`;
+        } else {
+          showMessage('enable2faMessage', data.message, true);
+        }
+      } catch (error) {
+        showMessage('enable2faMessage', 'Failed to setup 2FA', true);
+      }
+    });
+
+    document.getElementById('verify2faBtn').addEventListener('click', async () => {
+      const code = (document.getElementById('verifyCode') as HTMLInputElement).value;
+      
+      try {
+        const response = await fetch(`${API_URL}/api/2fa/verify`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ totp_code: code })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          document.getElementById('totp-setup').classList.add('hidden');
+          document.getElementById('totp-enabled').classList.remove('hidden');
+          showMessage('verify2faMessage', '2FA enabled successfully!', false);
+        } else {
+          showMessage('verify2faMessage', data.message, true);
+        }
+      } catch (error) {
+        showMessage('verify2faMessage', 'Verification failed', true);
+      }
+    });
+
+    document.getElementById('disable2faBtn').addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to disable 2FA?')) return;
+
+      try {
+        const response = await fetch(`${API_URL}/api/2fa/disable`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.ok) {
+          document.getElementById('totp-enabled').classList.add('hidden');
+          document.getElementById('totp-disabled').classList.remove('hidden');
+          showMessage('disable2faMessage', '2FA disabled', false);
+        }
+      } catch (error) {
+        showMessage('disable2faMessage', 'Failed to disable 2FA', true);
+      }
+    });
+
+    // Device Management
+    document.getElementById('registerDeviceBtn').addEventListener('click', async () => {
+      const deviceName = prompt('Enter device name:');
+      if (!deviceName) return;
+
+      try {
+        const response = await fetch(`${API_URL}/api/devices/register`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ device_name: deviceName })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          showMessage('registerDeviceMessage', 'Device registered!', false);
+          await loadDevices();
+        } else {
+          showMessage('registerDeviceMessage', data.message, true);
+        }
+      } catch (error) {
+        showMessage('registerDeviceMessage', 'Failed to register device', true);
+      }
+    });
+
+    async function loadDevices() {
+      try {
+        const response = await fetch(`${API_URL}/api/devices`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const devices = await response.json();
+        const container = document.getElementById('deviceList');
+
+        if (devices.length === 0) {
+          container.innerHTML = '<p style="color: #999;">No devices registered</p>';
+          return;
+        }
+
+        container.innerHTML = devices.map((device: any) => `
+          <div class="device-item">
+            <div class="device-info">
+              <div class="device-name">
+                ${device.device_name}
+                <span class="status-badge ${device.is_active ? 'active' : 'inactive'}">
+                  ${device.is_active ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+              <div class="device-fingerprint">${device.device_fingerprint}</div>
+              <div class="device-date">Last used: ${new Date(device.last_used).toLocaleString()}</div>
+            </div>
+            ${device.is_active ? `<button class="danger" onclick="removeDevice(${device.id})">Remove</button>` : ''}
+          </div>
+        `).join('');
+      } catch (error) {
+        console.error('Failed to load devices:', error);
+      }
+    }
+
+    (window as any).removeDevice = async function(deviceId: number) {
+      if (!confirm('Remove this device?')) return;
+
+      try {
+        const response = await fetch(`${API_URL}/api/devices/remove`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ device_id: deviceId })
+        });
+
+        if (response.ok) {
+          await loadDevices();
+        }
+      } catch (error) {
+        alert('Failed to remove device');
+      }
+    };
+
+    async function loadLoginHistory() {
+      try {
+        const response = await fetch(`${API_URL}/api/login-history`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const history = await response.json();
+        const container = document.getElementById('loginHistory');
+
+        if (history.length === 0) {
+          container.innerHTML = '<p style="color: #999;">No login history</p>';
+          return;
+        }
+
+        container.innerHTML = history.map((item: any) => `
+          <div class="login-item">
+            <div class="ip">🌐 ${item.ip_address}</div>
+            <div class="date">📅 ${new Date(item.created_at).toLocaleString()}</div>
+            <div class="device">💻 ${item.user_agent || 'Unknown device'}</div>
+          </div>
+        `).join('');
+      } catch (error) {
+        console.error('Failed to load login history:', error);
+      }
+    }
+
+    async function loadHoneypotStats() {
+      try {
+        const response = await fetch(`${API_URL}/api/admin/honeypot-stats`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const stats = await response.json();
+        const container = document.getElementById('honeypotStats');
+
+        container.innerHTML = `
+          <div class="stat-card">
+            <div class="stat-value">${stats.total_attempts || 0}</div>
+            <div class="stat-label">Bot Attempts</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.unique_ips || 0}</div>
+            <div class="stat-label">Unique IPs</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.last_24h || 0}</div>
+            <div class="stat-label">Last 24h</div>
+          </div>
+        `;
+      } catch (error) {
+        document.getElementById('honeypotStats').innerHTML = '<p style="color: #999;">Stats unavailable</p>';
+      }
+    }
+
+    function showMessage(elementId: string, text: string, isError: boolean) {
+      const el = document.getElementById(elementId);
+      if (el) {
+        el.textContent = text;
+        el.className = `message ${isError ? 'error' : 'success'}`;
+        setTimeout(() => el.style.display = 'none', 5000);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
