@@ -26,6 +26,7 @@ jobs:
           - './message_auth'
           - './honeypot'
           - './handlers'
+          - './login_monitoring'
 
     steps:
     - name: Checkout repository
