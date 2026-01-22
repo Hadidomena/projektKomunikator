@@ -27,7 +27,7 @@ jobs:
           - './honeypot'
           - './handlers'
           - './login_monitoring'
-          - './passwords_reset'
+          - './password_reset'
 
     steps:
     - name: Checkout repository
