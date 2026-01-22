@@ -24,6 +24,7 @@ jobs:
           - './e2ee'  
           - './totp'
           - './message_auth'
+          - './honeypot'
 
     steps:
     - name: Checkout repository
