@@ -66,3 +66,18 @@ func generateVerificationCode() (string, error) {
 	}
 	return string(code), nil
 }
+
+func SendPasswordResetEmail(recipientEmail, token string) {
+	resetLink := fmt.Sprintf("http://localhost:3000/reset-password?token=%s", token)
+	_ = fmt.Sprintf("Password Reset Request")
+	_ = fmt.Sprintf("Click the following link to reset your password: %s\n\nThis link will expire in 1 hour.", resetLink)
+
+	fmt.Printf("Password reset email to %s: %s\n", recipientEmail, resetLink)
+}
+
+func SendNewDeviceEmail(recipientEmail, ip, userAgent string) {
+	_ = fmt.Sprintf("New Device Login Detected")
+	_ = fmt.Sprintf("A new login was detected from:\nIP: %s\nDevice: %s\n\nIf this wasn't you, please secure your account immediately.", ip, userAgent)
+
+	fmt.Printf("New device alert to %s from IP %s\n", recipientEmail, ip)
+}

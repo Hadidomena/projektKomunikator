@@ -14,6 +14,7 @@ import (
 	"github.com/Hadidomena/projektKomunikator/cryptography"
 	"github.com/Hadidomena/projektKomunikator/csrf"
 	"github.com/Hadidomena/projektKomunikator/e2ee"
+	"github.com/Hadidomena/projektKomunikator/handlers"
 	jwt_auth "github.com/Hadidomena/projektKomunikator/jwt_auth"
 	message_utils "github.com/Hadidomena/projektKomunikator/message_utils"
 	passwordutils "github.com/Hadidomena/projektKomunikator/password_utils"
@@ -31,6 +32,7 @@ type RegistrationRequest struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	Website  string `json:"website,omitempty"`
 }
 
 type LoginRequest struct {
@@ -76,6 +78,16 @@ type MessageResponse struct {
 type ErrorResponse struct {
 	Message string `json:"message"`
 }
+
+type PasswordResetRequest struct {
+	Email string `json:"email"`
+}
+
+type PasswordResetVerify struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
 type TOTPSetupRequest struct {
 	CSRFToken string `json:"csrf_token"`
 }
@@ -130,11 +142,14 @@ func main() {
 		log.Fatal(err)
 	}
 	csrfStore = csrf.NewTokenStore()
+	loginTracker = validation.NewLoginAttemptTracker()
+
+	handlers.Initialize(db, csrfStore, loginTracker)
 
 	http.HandleFunc("/api/texts", textsHandler)
-	http.HandleFunc("/api/register", registerHandler)
-	http.HandleFunc("/api/login", loginHandler)
-	http.HandleFunc("/api/check-password-strength", checkPasswordStrengthHandler)
+	http.HandleFunc("/api/register", handlers.RegisterHandler)
+	http.HandleFunc("/api/login", handlers.LoginHandler)
+	http.HandleFunc("/api/check-password-strength", handlers.CheckPasswordStrengthHandler)
 
 	http.HandleFunc("/api/csrf-token", authMiddleware(csrfTokenHandler))
 
@@ -142,7 +157,23 @@ func main() {
 	http.HandleFunc("/api/2fa/setup", authMiddleware(totpSetupHandler))
 	http.HandleFunc("/api/2fa/verify", authMiddleware(totpVerifyHandler))
 	http.HandleFunc("/api/2fa/disable", authMiddleware(totpDisableHandler))
-	http.HandleFunc("/api/2fa/validate", totpValidateHandler) // Public endpoint for login
+	http.HandleFunc("/api/2fa/validate", totpValidateHandler)
+
+	http.HandleFunc("/api/messages/send", authMiddleware(sendMessageHandler))
+	http.HandleFunc("/api/messages", authMiddleware(getInboxHandler))
+	http.HandleFunc("/api/messages/mark-read", authMiddleware(markMessageAsReadHandler))
+	http.HandleFunc("/api/messages/sent", authMiddleware(getSentMessagesHandler))
+
+	http.HandleFunc("/api/devices/register", authMiddleware(registerDeviceHandler))
+	http.HandleFunc("/api/devices", authMiddleware(listDevicesHandler))
+	http.HandleFunc("/api/devices/remove", authMiddleware(deactivateDeviceHandler))
+
+	http.HandleFunc("/api/password-reset/request", handlers.PasswordResetRequestHandler)
+	http.HandleFunc("/api/password-reset/verify", handlers.PasswordResetVerifyHandler)
+	
+	http.HandleFunc("/api/login-history", authMiddleware(loginHistoryHandler))
+	http.HandleFunc("/api/admin/honeypot-stats", authMiddleware(honeypotStatsHandler))
+
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetConnMaxIdleTime(10 * time.Minute)
 
@@ -159,22 +190,6 @@ func main() {
 	}
 
 	loginTracker = validation.NewLoginAttemptTracker()
-
-	http.HandleFunc("/api/texts", textsHandler)
-	http.HandleFunc("/api/register", registerHandler)
-	http.HandleFunc("/api/login", loginHandler)
-	http.HandleFunc("/api/check-password-strength", checkPasswordStrengthHandler)
-
-	http.HandleFunc("/api/devices/register", authMiddleware(registerDeviceHandler))
-	http.HandleFunc("/api/devices/list", authMiddleware(listDevicesHandler))
-	http.HandleFunc("/api/devices/deactivate", authMiddleware(deactivateDeviceHandler))
-	http.HandleFunc("/api/devices/public-key", getDevicePublicKeyHandler)
-
-	http.HandleFunc("/api/messages/send", authMiddleware(sendMessageHandler))
-	http.HandleFunc("/api/messages/inbox", authMiddleware(getInboxHandler))
-	http.HandleFunc("/api/messages/sent", authMiddleware(getSentMessagesHandler))
-	http.HandleFunc("/api/messages/mark-read", authMiddleware(markMessageAsReadHandler))
-	http.HandleFunc("/api/messages/delete", authMiddleware(deleteMessageHandler))
 
 	fmt.Println("Go backend server starting on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -214,18 +229,30 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func loginHistoryHandler(w http.ResponseWriter, r *http.Request) {
+	userID, userEmail, err := handlers.GetUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Unauthorized"})
+		return
+	}
+	handlers.GetLoginHistoryHandler(w, r, userID, userEmail)
+}
+
+func honeypotStatsHandler(w http.ResponseWriter, r *http.Request) {
+	userID, userEmail, err := handlers.GetUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Unauthorized"})
+		return
+	}
+	handlers.GetHoneypotStatsHandler(w, r, userID, userEmail)
+}
+
 func getUserFromContext(r *http.Request) (int, string, error) {
-	userID, ok := r.Context().Value("userID").(int)
-	if !ok {
-		return 0, "", fmt.Errorf("user ID not found in context")
-	}
-
-	userEmail, ok := r.Context().Value("userEmail").(string)
-	if !ok {
-		return 0, "", fmt.Errorf("user email not found in context")
-	}
-
-	return userID, userEmail, nil
+	return handlers.GetUserFromContext(r)
 }
 
 func textsHandler(w http.ResponseWriter, r *http.Request) {
@@ -268,306 +295,6 @@ func textsHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, "Text successfully submitted")
-}
-
-func registerHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req RegistrationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
-		return
-	}
-
-
-	if req.Username == "" || req.Email == "" || req.Password == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
-		return
-	}
-
-
-	if !validation.ValidateEmail(req.Email) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
-		return
-	}
-
-	ctx2, cancel2 := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel2()
-
-	emailExists, err := validation.CheckEmailExists(db, req.Email)
-	if err != nil {
-		log.Printf("Error checking email existence: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
-		return
-	}
-
-	if emailExists {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
-		return
-	}
-
-	if passwordutils.IsViablePassword(req.Password) == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
-		return
-	}
-
-	ctx2, cancel2 = context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel2()
-
-	type hashResult struct {
-		hash string
-		err  error
-	}
-	hashChan := make(chan hashResult, 1)
-
-	go func() {
-		hashedPassword, err := cryptography.HashPassword(req.Password)
-		hashChan <- hashResult{hash: hashedPassword, err: err}
-	}()
-
-	var hashedPassword string
-	select {
-	case <-ctx2.Done():
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusRequestTimeout)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
-		log.Printf("Password hashing timeout")
-		return
-	case result := <-hashChan:
-		if result.err != nil {
-			log.Printf("Error hashing password: %v", result.err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
-			return
-		}
-		hashedPassword = result.hash
-	}
-
-	_, err = db.ExecContext(ctx2, "INSERT INTO Users (username, email, password_hash) VALUES ($1, $2, $3)", req.Username, strings.ToLower(req.Email), hashedPassword)
-	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
-			return
-		}
-
-		if ctx2.Err() == context.DeadlineExceeded {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusRequestTimeout)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
-			log.Printf("Database operation timeout: %v", err)
-			return
-		}
-
-		log.Printf("Failed to insert user into database: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})
-}
-
-func loginHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
-		return
-	}
-
-
-	if !validation.ValidateEmail(req.Email) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
-		return
-	}
-
-	email := strings.ToLower(req.Email)
-
-	isLocked, remainingTime, isBlocked := loginTracker.CheckAccountStatus(email)
-
-	if isBlocked {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("account_blocked")})
-		return
-	}
-
-	if isLocked {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(ErrorResponse{
-			Message: validation.GetSanitizedError("account_locked"),
-		})
-		log.Printf("Login attempt for locked account: %s, remaining time: %v", email, remainingTime)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	var storedHash string
-	var userID int
-	err := db.QueryRowContext(ctx, "SELECT id, password_hash FROM Users WHERE email = $1", email).Scan(&userID, &storedHash)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			ip := r.RemoteAddr
-			loginTracker.RecordFailedAttempt(email, ip)
-
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
-			return
-		}
-
-		log.Printf("Database error during login: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
-		return
-	}
-
-	passwordValid, err := cryptography.VerifyPassword(req.Password, storedHash)
-	if err != nil {
-		log.Printf("Error verifying password: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
-		return
-	}
-
-	if !passwordValid {
-		ip := r.RemoteAddr
-		isLocked, lockDuration, isBlocked, _ := loginTracker.RecordFailedAttempt(email, ip)
-
-		log.Printf("Failed login attempt for user: %s from IP: %s", email, ip)
-
-		if isBlocked {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("account_blocked")})
-			return
-		}
-
-		if isLocked {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(ErrorResponse{
-				Message: validation.GetSanitizedError("account_locked"),
-			})
-			log.Printf("Account locked: %s, duration: %v", email, lockDuration)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
-		return
-	}
-
-	loginTracker.ResetAttempts(email)
-
-	token, err := jwt_auth.GenerateToken(userID, email)
-	if err != nil {
-		log.Printf("Failed to generate JWT token: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to complete login"})
-		return
-	}
-
-	log.Printf("Successful login for user: %s", email)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message":    "Login successful",
-		"token":      token,
-		"user_id":    userID,
-		"email":      email,
-		"expires_in": jwt_auth.GetTokenExpiration().Seconds(),
-	})
-}
-
-// checkPasswordStrengthHandler handles password strength checking
-func checkPasswordStrengthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		Password string `json:"password"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request"})
-		return
-	}
-
-
-	strength := passwordutils.GetPasswordStrength(req.Password)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(strength)
 }
 
 // sendMessageHandler handles sending messages between users
