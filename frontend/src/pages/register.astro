@@ -45,6 +45,9 @@
     <input type="text" id="username" placeholder="Username" required />
     <input type="email" id="email" placeholder="Email" required />
     
+    <!-- Honeypot field - hidden from users, visible to bots -->
+    <input type="text" id="website" name="website" style="position:absolute;left:-9999px;width:1px;height:1px;" tabindex="-1" autocomplete="off" />
+    
     <div class="password-wrapper">
       <input type="password" id="password" placeholder="Password (min 12 characters)" required />
       <div id="strength-meter" class="strength-meter"></div>
@@ -88,7 +91,7 @@
       }
 
       try {
-        const response = await fetch('http://localhost:8080/api/check-password-strength', {
+        const response = await fetch('/api/check-password-strength', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ password }),
@@ -155,11 +158,14 @@
       submitBtn.disabled = true;
       submitBtn.textContent = 'Registering...';
 
+      // Get honeypot value
+      const website = (document.getElementById('website') as HTMLInputElement).value;
+
       try {
-        const response = await fetch('http://localhost:8080/api/register', {
+        const response = await fetch('/api/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, email, password }),
+          body: JSON.stringify({ username, email, password, website }),
         });
 
         if (response.ok) {

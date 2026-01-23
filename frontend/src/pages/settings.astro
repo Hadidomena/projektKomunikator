@@ -45,6 +45,7 @@
     .login-item .ip { font-weight: 600; color: #667eea; }
     .login-item .date { color: #999; font-size: 12px; }
     .login-item .device { color: #666; font-size: 12px; margin-top: 3px; }
+    .login-item .new-device { display: inline-block; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; margin-top: 5px; }
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px; }
     .stat-card { background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center; }
     .stat-value { font-size: 32px; font-weight: bold; color: #667eea; }
@@ -119,7 +120,7 @@
   </div>
 
   <script>
-    const API_URL = 'http://localhost:8080';
+    const API_URL = '';
     const token = localStorage.getItem('jwt_token');
 
     if (!token) {
@@ -127,6 +128,16 @@
     }
 
     let totpEnabled = false;
+
+    function showMessage(elementId: string, message: string, isError: boolean) {
+      const el = document.getElementById(elementId);
+      if (el) {
+        el.textContent = message;
+        el.className = isError ? 'message error' : 'message success';
+        el.style.display = 'block';
+        setTimeout(() => { el.style.display = 'none'; }, 5000);
+      }
+    }
 
     // Check 2FA status and load data
     async function init() {
@@ -156,13 +167,51 @@
           document.getElementById('totp-disabled')?.classList.add('hidden');
           document.getElementById('totp-setup')?.classList.remove('hidden');
           const qrContainer = document.getElementById('qrCodeContainer');
-          if (qrContainer) {
-            qrContainer.innerHTML = `<img src="${data.qr_code}" alt="QR Code" />`;
+          if (qrContainer && data.qr_code) {
+            // Use qrcode library to generate QR code
+            qrContainer.innerHTML = `
+              <div style="text-align: center; padding: 20px; background: white; border-radius: 10px;">
+                <canvas id="qrCanvas"></canvas>
+                <p style="margin-top: 10px; font-size: 12px; color: #666;">
+                  Secret: <code style="background: #f0f0f0; padding: 5px; border-radius: 3px;">${data.secret || ''}</code>
+                </p>
+              </div>
+            `;
+            
+            // Generate QR code on canvas using simple data URL
+            const canvas = document.getElementById('qrCanvas') as HTMLCanvasElement;
+            if (canvas) {
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                // Use Google Charts API as fallback
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                  canvas.width = 300;
+                  canvas.height = 300;
+                  ctx.drawImage(img, 0, 0, 300, 300);
+                };
+                img.onerror = () => {
+                  // Fallback: show URL as text
+                  qrContainer.innerHTML = `
+                    <div style="padding: 20px; background: white; border-radius: 10px;">
+                      <p style="color: #666; margin-bottom: 10px;">Scan this URL in your authenticator app:</p>
+                      <code style="word-break: break-all; background: #f0f0f0; padding: 10px; display: block; border-radius: 5px; font-size: 11px;">${data.qr_code}</code>
+                      <p style="margin-top: 10px; font-size: 12px; color: #666;">
+                        Or enter this secret manually: <strong>${data.secret || ''}</strong>
+                      </p>
+                    </div>
+                  `;
+                };
+                img.src = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(data.qr_code)}`;
+              }
+            }
           }
         } else {
           showMessage('enable2faMessage', data.message, true);
         }
       } catch (error) {
+        console.error('2FA setup error:', error);
         showMessage('enable2faMessage', 'Failed to setup 2FA', true);
       }
     });
@@ -248,11 +297,12 @@
         });
 
         const devices = await response.json();
+        console.log('Devices loaded:', devices);
         const container = document.getElementById('deviceList');
 
         if (!container) return;
 
-        if (devices.length === 0) {
+        if (!Array.isArray(devices) || devices.length === 0) {
           container.innerHTML = '<p style="color: #999;">No devices registered</p>';
           return;
         }
@@ -317,8 +367,9 @@
         container.innerHTML = history.map((item: any) => `
           <div class="login-item">
             <div class="ip">🌐 ${item.ip_address}</div>
-            <div class="date">📅 ${new Date(item.created_at).toLocaleString()}</div>
+            <div class="date">📅 ${new Date(item.login_time).toLocaleString()}</div>
             <div class="device">💻 ${item.user_agent || 'Unknown device'}</div>
+            ${item.new_device ? '<div class="new-device">🆕 New Device</div>' : ''}
           </div>
         `).join('');
       } catch (error) {
@@ -356,15 +407,6 @@
         if (statsContainer) {
           statsContainer.innerHTML = '<p style="color: #999;">Stats unavailable</p>';
         }
-      }
-    }
-
-    function showMessage(elementId: string, text: string, isError: boolean) {
-      const el = document.getElementById(elementId);
-      if (el) {
-        el.textContent = text;
-        el.className = `message ${isError ? 'error' : 'success'}`;
-        setTimeout(() => el.style.display = 'none', 5000);
       }
     }
 
