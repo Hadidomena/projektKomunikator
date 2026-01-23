@@ -11,6 +11,7 @@ import (
 
 	"github.com/Hadidomena/projektKomunikator/cryptography"
 	"github.com/Hadidomena/projektKomunikator/email"
+	"github.com/Hadidomena/projektKomunikator/honeypot"
 	jwt_auth "github.com/Hadidomena/projektKomunikator/jwt_auth"
 	"github.com/Hadidomena/projektKomunikator/login_monitoring"
 	"github.com/Hadidomena/projektKomunikator/validation"
@@ -36,6 +37,45 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		return
+	}
+
+	// Check honeypot fields - if any are filled, it's likely a bot
+	honeypotTriggered := honeypot.CheckHoneypot(req.Website) ||
+		honeypot.CheckHoneypot(req.Phone) ||
+		honeypot.CheckHoneypot(req.MiddleName)
+
+	if honeypotTriggered {
+		ip := GetClientIP(r)
+		honeypotValue := req.Website
+		if req.Phone != "" {
+			honeypotValue = req.Phone
+		} else if req.MiddleName != "" {
+			honeypotValue = req.MiddleName
+		}
+
+		honeypotAttempt := &honeypot.HoneypotAttempt{
+			IPAddress:     ip,
+			UserAgent:     r.UserAgent(),
+			HoneypotField: "login_honeypot",
+			HoneypotValue: honeypotValue,
+			SubmittedData: map[string]interface{}{
+				"email":       req.Email,
+				"website":     req.Website,
+				"phone":       req.Phone,
+				"middle_name": req.MiddleName,
+			},
+			Blocked: true,
+		}
+
+		honeypot.RecordHoneypotAttempt(ctx.DB, honeypotAttempt)
+		log.Printf("Login honeypot triggered from IP: %s, email: %s", ip, req.Email)
+
+		// Return fake success to confuse bots - with a small delay
+		time.Sleep(500 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
 		return
 	}
 

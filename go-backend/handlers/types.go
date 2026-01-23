@@ -8,8 +8,11 @@ type RegistrationRequest struct {
 }
 
 type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	Website    string `json:"website,omitempty"`     // Honeypot field 1
+	Phone      string `json:"phone,omitempty"`       // Honeypot field 2
+	MiddleName string `json:"middle_name,omitempty"` // Honeypot field 3
 }
 
 type ErrorResponse struct {

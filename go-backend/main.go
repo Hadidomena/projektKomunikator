@@ -98,6 +98,7 @@ type TOTPSetupResponse struct {
 
 type TOTPVerifyRequest struct {
 	Code      string `json:"code"`
+	TOTPCode  string `json:"totp_code"`
 	CSRFToken string `json:"csrf_token"`
 }
 
@@ -162,6 +163,7 @@ func main() {
 	http.HandleFunc("/api/csrf-token", authMiddleware(csrfTokenHandler))
 
 	// 2FA endpoints (protected)
+	http.HandleFunc("/api/2fa/status", authMiddleware(totpStatusHandler))
 	http.HandleFunc("/api/2fa/setup", authMiddleware(totpSetupHandler))
 	http.HandleFunc("/api/2fa/verify", authMiddleware(totpVerifyHandler))
 	http.HandleFunc("/api/2fa/disable", authMiddleware(totpDisableHandler))
@@ -1171,6 +1173,45 @@ func csrfTokenHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(CSRFTokenResponse{Token: token})
 }
 
+// totpStatusHandler returns the 2FA status for a user
+func totpStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+		return
+	}
+
+	userID, _, err := getUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		return
+	}
+
+	var totpEnabled bool
+	var totpSecret sql.NullString
+	err = db.QueryRow(`SELECT totp_enabled, totp_secret FROM Users WHERE id = $1`, userID).Scan(&totpEnabled, &totpSecret)
+	if err != nil {
+		log.Printf("Failed to get 2FA status for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to get 2FA status"})
+		return
+	}
+
+	// Check if setup is in progress (secret exists but not enabled)
+	setupInProgress := totpSecret.Valid && totpSecret.String != "" && !totpEnabled
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"enabled":           totpEnabled,
+		"setup_in_progress": setupInProgress,
+	})
+}
+
 // totpSetupHandler initiates 2FA setup for a user
 func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1287,7 +1328,20 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	valid, err := totp.ValidateTOTP(totpSecret, req.Code, totp.DefaultConfig())
+	// Accept either 'code' or 'totp_code' from the request
+	verificationCode := req.Code
+	if verificationCode == "" {
+		verificationCode = req.TOTPCode
+	}
+
+	if verificationCode == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Verification code is required"})
+		return
+	}
+
+	valid, err := totp.ValidateTOTP(totpSecret, verificationCode, totp.DefaultConfig())
 	if err != nil {
 		log.Printf("Failed to validate TOTP for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")

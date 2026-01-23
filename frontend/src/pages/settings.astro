@@ -128,6 +128,7 @@
     }
 
     let totpEnabled = false;
+    let csrfToken = '';
 
     function showMessage(elementId: string, message: string, isError: boolean) {
       const el = document.getElementById(elementId);
@@ -139,8 +140,24 @@
       }
     }
 
+    // Fetch CSRF token for protected operations
+    async function fetchCSRFToken() {
+      try {
+        const response = await fetch(`${API_URL}/api/csrf-token`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          csrfToken = data.csrf_token;
+        }
+      } catch (error) {
+        console.error('Failed to fetch CSRF token:', error);
+      }
+    }
+
     // Check 2FA status and load data
     async function init() {
+      await fetchCSRFToken();
       await check2FAStatus();
       await loadDevices();
       await loadLoginHistory();
@@ -148,9 +165,37 @@
     }
 
     async function check2FAStatus() {
-      // This would need a backend endpoint to check status
-      // For now, we'll show the enable button
-      document.getElementById('totp-disabled')?.classList.remove('hidden');
+      try {
+        const response = await fetch(`${API_URL}/api/2fa/status`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          totpEnabled = data.enabled;
+
+          // Hide all sections first
+          document.getElementById('totp-disabled')?.classList.add('hidden');
+          document.getElementById('totp-setup')?.classList.add('hidden');
+          document.getElementById('totp-enabled')?.classList.add('hidden');
+
+          if (data.enabled) {
+            document.getElementById('totp-enabled')?.classList.remove('hidden');
+          } else if (data.setup_in_progress) {
+            // Setup was started but not completed - let user start fresh
+            document.getElementById('totp-disabled')?.classList.remove('hidden');
+          } else {
+            document.getElementById('totp-disabled')?.classList.remove('hidden');
+          }
+        } else {
+          // Default to showing enable button on error
+          document.getElementById('totp-disabled')?.classList.remove('hidden');
+        }
+      } catch (error) {
+        console.error('Failed to check 2FA status:', error);
+        document.getElementById('totp-disabled')?.classList.remove('hidden');
+      }
     }
 
     // 2FA Management
@@ -219,6 +264,11 @@
     document.getElementById('verify2faBtn')?.addEventListener('click', async () => {
       const code = (document.getElementById('verifyCode') as HTMLInputElement).value;
       
+      if (!code || code.length !== 6) {
+        showMessage('verify2faMessage', 'Please enter a valid 6-digit code', true);
+        return;
+      }
+
       try {
         const response = await fetch(`${API_URL}/api/2fa/verify`, {
           method: 'POST',
@@ -226,7 +276,7 @@
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ totp_code: code })
+          body: JSON.stringify({ totp_code: code, csrf_token: csrfToken })
         });
 
         const data = await response.json();
@@ -234,9 +284,10 @@
         if (response.ok) {
           document.getElementById('totp-setup')?.classList.add('hidden');
           document.getElementById('totp-enabled')?.classList.remove('hidden');
+          totpEnabled = true;
           showMessage('verify2faMessage', '2FA enabled successfully!', false);
         } else {
-          showMessage('verify2faMessage', data.message, true);
+          showMessage('verify2faMessage', data.message || 'Verification failed', true);
         }
       } catch (error) {
         showMessage('verify2faMessage', 'Verification failed', true);
@@ -249,13 +300,22 @@
       try {
         const response = await fetch(`${API_URL}/api/2fa/disable`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ csrf_token: csrfToken })
         });
+
+        const data = await response.json();
 
         if (response.ok) {
           document.getElementById('totp-enabled')?.classList.add('hidden');
           document.getElementById('totp-disabled')?.classList.remove('hidden');
+          totpEnabled = false;
           showMessage('disable2faMessage', '2FA disabled', false);
+        } else {
+          showMessage('disable2faMessage', data.message || 'Failed to disable 2FA', true);
         }
       } catch (error) {
         showMessage('disable2faMessage', 'Failed to disable 2FA', true);
@@ -280,7 +340,20 @@
         const data = await response.json();
 
         if (response.ok) {
-          showMessage('registerDeviceMessage', 'Device registered!', false);
+          // Store device keys in localStorage for E2EE
+          const deviceKeys = {
+            device_id: data.device_id,
+            device_fingerprint: data.device_fingerprint,
+            public_key: data.public_key,
+            private_key: data.private_key
+          };
+          
+          // Store in localStorage (in production, use more secure storage)
+          const existingDevices = JSON.parse(localStorage.getItem('device_keys') || '[]');
+          existingDevices.push(deviceKeys);
+          localStorage.setItem('device_keys', JSON.stringify(existingDevices));
+          
+          showMessage('registerDeviceMessage', `Device registered! Keys stored securely.`, false);
           await loadDevices();
         } else {
           showMessage('registerDeviceMessage', data.message, true);

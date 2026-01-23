@@ -26,6 +26,8 @@
     .links a:hover { text-decoration: underline; }
     .totp-section { display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd; }
     .totp-section.active { display: block; }
+    /* Honeypot fields - hidden from real users */
+    .hp-field { position: absolute; left: -9999px; opacity: 0; height: 0; width: 0; z-index: -1; }
   </style>
 </head>
 <body>
@@ -40,6 +42,21 @@
         <label for="password">Password</label>
         <input type="password" id="password" name="password" required autocomplete="current-password" />
       </div>
+      
+      <!-- Honeypot fields - hidden from real users but visible to bots -->
+      <div class="hp-field" aria-hidden="true">
+        <label for="website">Website</label>
+        <input type="text" id="website" name="website" tabindex="-1" autocomplete="off" />
+      </div>
+      <div class="hp-field" aria-hidden="true">
+        <label for="phone">Phone Number</label>
+        <input type="tel" id="phone" name="phone" tabindex="-1" autocomplete="off" />
+      </div>
+      <div class="hp-field" aria-hidden="true">
+        <label for="middle_name">Middle Name</label>
+        <input type="text" id="middle_name" name="middle_name" tabindex="-1" autocomplete="off" />
+      </div>
+      
       <button type="submit" id="loginBtn">Login</button>
       
       <div class="totp-section" id="totpSection">
@@ -80,6 +97,11 @@
       
       const email = (document.getElementById('email') as HTMLInputElement).value;
       const password = (document.getElementById('password') as HTMLInputElement).value;
+      
+      // Get honeypot field values (should be empty for real users)
+      const website = (document.getElementById('website') as HTMLInputElement).value;
+      const phone = (document.getElementById('phone') as HTMLInputElement).value;
+      const middleName = (document.getElementById('middle_name') as HTMLInputElement).value;
 
       loginBtn.disabled = true;
       loginBtn.textContent = 'Logging in...';
@@ -88,7 +110,13 @@
         const response = await fetch(`${API_URL}/api/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
+          body: JSON.stringify({ 
+            email, 
+            password,
+            website,        // Honeypot field
+            phone,          // Honeypot field
+            middle_name: middleName  // Honeypot field
+          })
         });
 
         const data = await response.json();
@@ -99,7 +127,14 @@
             requiresTotp = true;
             tempToken = data.temp_token || '';
             totpSection.classList.add('active');
+            // Disable email/password fields during 2FA verification
+            (document.getElementById('email') as HTMLInputElement).disabled = true;
+            (document.getElementById('password') as HTMLInputElement).disabled = true;
+            loginBtn.disabled = true;
+            loginBtn.textContent = '2FA Required';
             showMessage('Please enter your 2FA code', false);
+            // Focus on TOTP input
+            (document.getElementById('totpCode') as HTMLInputElement).focus();
           } else {
             // Login successful
             localStorage.setItem('jwt_token', data.token);
