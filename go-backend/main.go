@@ -1061,7 +1061,7 @@ func listDevicesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var devices []DeviceResponse
+	var devices []DeviceResponse = make([]DeviceResponse, 0)
 	for rows.Next() {
 		var device DeviceResponse
 		if err := rows.Scan(&device.ID, &device.DeviceName, &device.PublicKey, &device.DeviceFingerprint,
