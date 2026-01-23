@@ -26,8 +26,8 @@ Documentation
 - [Password Strength Guide](PASSWORD_STRENGTH.md) - Password validation and UI
 - [E2EE Implementation](E2EE_IMPLEMENTATION.md) - Server-side E2EE architecture
 - [E2EE Client Guide](E2EE_CLIENT_GUIDE.md) - JavaScript/TypeScript client examples
-- [Attachments API](API_ATTACHMENTS.md) - **NEW!** File attachments with E2EE encryption
-- [Frontend Guide](frontend/FRONTEND_README.md) - **NEW!** Complete frontend documentation
+- [Attachments API](API_ATTACHMENTS.md) - File attachments with E2EE encryption
+- [Frontend Guide](frontend/FRONTEND_README.md) - Complete frontend documentation
 
 Implemented algorithms
 - **Argon2id (password hashing)**: used for secure, memory-hard password hashing (`go-backend/cryptography/cryptography.go`).
