@@ -72,7 +72,8 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	var storedHash string
 	var userID int
-	err := ctx.DB.QueryRowContext(ctx2, "SELECT id, password_hash FROM Users WHERE email = $1", emailAddr).Scan(&userID, &storedHash)
+	var totpEnabled bool
+	err := ctx.DB.QueryRowContext(ctx2, "SELECT id, password_hash, totp_enabled FROM Users WHERE email = $1", emailAddr).Scan(&userID, &storedHash, &totpEnabled)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -157,6 +158,18 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	if isNewDevice {
 		log.Printf("New device login detected for user %s from IP %s", emailAddr, ip)
 		go email.SendNewDeviceEmail(emailAddr, ip, userAgent)
+	}
+
+	// Check if 2FA is enabled
+	if totpEnabled {
+		log.Printf("2FA required for user: %s", emailAddr)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"message":       "2FA verification required",
+			"requires_totp": true,
+		})
+		return
 	}
 
 	token, err := jwt_auth.GenerateToken(userID, emailAddr)

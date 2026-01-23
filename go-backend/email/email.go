@@ -7,17 +7,58 @@ import (
 	"math/big"
 	"net/mail"
 	"net/smtp"
+	"os"
 
 	"github.com/jordan-wright/email"
 )
 
 var (
-	smtpAddr      = "smtp.example.com:587"
-	smtpHost      = "smtp.example.com"
-	smtpUser      = "smtp-user"
-	smtpPass      = "smtp-pass"
-	tlsServerName = "smtp.example.com"
+	smtpAddr      string
+	smtpHost      string
+	smtpUser      string
+	smtpPass      string
+	tlsServerName string
+	fromEmail     string
+	fromName      string
 )
+
+func init() {
+	// Load email configuration from environment variables
+	smtpAddr = os.Getenv("SMTP_ADDR")
+	if smtpAddr == "" {
+		smtpAddr = "smtp.example.com:587"
+	}
+
+	smtpHost = os.Getenv("SMTP_HOST")
+	if smtpHost == "" {
+		smtpHost = "smtp.example.com"
+	}
+
+	smtpUser = os.Getenv("SMTP_USER")
+	if smtpUser == "" {
+		smtpUser = "smtp-user"
+	}
+
+	smtpPass = os.Getenv("SMTP_PASS")
+	if smtpPass == "" {
+		smtpPass = "smtp-pass"
+	}
+
+	tlsServerName = os.Getenv("SMTP_TLS_SERVER_NAME")
+	if tlsServerName == "" {
+		tlsServerName = smtpHost
+	}
+
+	fromEmail = os.Getenv("SMTP_FROM_EMAIL")
+	if fromEmail == "" {
+		fromEmail = "noreply@example.com"
+	}
+
+	fromName = os.Getenv("SMTP_FROM_NAME")
+	if fromName == "" {
+		fromName = "Komunikator"
+	}
+}
 
 func secureInt(max int64) (int64, error) {
 	if max <= 0 {
@@ -42,7 +83,7 @@ var sendFunc = func(e *email.Email) error {
 
 func SendEmail(recipient []string, template string) error {
 	e := email.NewEmail()
-	e.From = "Sender Name <sender@example.com>"
+	e.From = fmt.Sprintf("%s <%s>", fromName, fromEmail)
 	e.To = recipient
 	e.Subject = "Test"
 	e.Text = []byte(template)

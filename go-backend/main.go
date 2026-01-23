@@ -102,8 +102,9 @@ type TOTPVerifyRequest struct {
 }
 
 type TOTPValidateRequest struct {
-	Email string `json:"email"`
-	Code  string `json:"code"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Code     string `json:"totp_code"`
 }
 
 type CSRFTokenResponse struct {
@@ -125,6 +126,15 @@ func init() {
 		// panic("SECURITY ERROR: PEPPER environment variable not set")
 	}
 	cryptography.SetPepper(appPepper)
+
+	// Initialize encryption key for sensitive data (TOTP secrets, tokens, etc.)
+	encryptionSecret := os.Getenv("ENCRYPTION_SECRET")
+	if encryptionSecret == "" {
+		log.Fatal("SECURITY ERROR: ENCRYPTION_SECRET environment variable not set")
+	}
+	if err := cryptography.InitializeEncryptionKey(encryptionSecret); err != nil {
+		log.Fatalf("Failed to initialize encryption key: %v", err)
+	}
 }
 
 func main() {
@@ -160,6 +170,7 @@ func main() {
 	http.HandleFunc("/api/messages/send", authMiddleware(sendMessageHandler))
 	http.HandleFunc("/api/messages", authMiddleware(getInboxHandler))
 	http.HandleFunc("/api/messages/mark-read", authMiddleware(markMessageAsReadHandler))
+	http.HandleFunc("/api/messages/delete", authMiddleware(deleteMessageHandler))
 	http.HandleFunc("/api/messages/sent", authMiddleware(getSentMessagesHandler))
 	http.HandleFunc("/api/messages/get", authMiddleware(getMessageHandler))
 
@@ -187,8 +198,6 @@ func main() {
 	if err := jwt_auth.InitJWT(); err != nil {
 		log.Fatalf("Failed to initialize JWT: %v", err)
 	}
-
-	loginTracker = validation.NewLoginAttemptTracker()
 
 	fmt.Println("Go backend server starting on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -307,11 +316,17 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.Content) > 10000 {
+	// Validate message size (allow larger for attachments in base64)
+	if len(req.Content) > 50000 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message too long"})
 		return
+	}
+
+	// Log attachments info
+	if len(req.Attachments) > 0 {
+		log.Printf("Sending message with %d attachments from %s to %s", len(req.Attachments), senderEmail, req.ReceiverEmail)
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -335,6 +350,24 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	messageContent := req.Content
 	var encryptedKey *string
+
+	// If message has attachments, serialize them with content
+	if len(req.Attachments) > 0 {
+		msgWithAttachments := message_utils.MessageWithAttachments{
+			Content:     req.Content,
+			Attachments: req.Attachments,
+		}
+		// Serialize to JSON for storage
+		jsonData, err := json.Marshal(msgWithAttachments)
+		if err != nil {
+			log.Printf("Failed to serialize message with attachments: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to process attachments"})
+			return
+		}
+		messageContent = string(jsonData)
+	}
 
 	if req.Encrypted && req.DeviceID > 0 {
 		// Get sender's device private key from environment
@@ -802,6 +835,18 @@ func getMessageHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	} else {
+		// Try to parse as JSON with attachments (for non-encrypted messages)
+		var msgWithAttachments message_utils.MessageWithAttachments
+		if err := json.Unmarshal([]byte(msg.Content), &msgWithAttachments); err == nil {
+			// Successfully parsed as JSON with attachments
+			if len(msgWithAttachments.Attachments) > 0 {
+				msg.Content = msgWithAttachments.Content
+				msg.Attachments = msgWithAttachments.Attachments
+			}
+			// If no attachments, msg.Content already has the right value
+		}
+		// If parsing fails, msg.Content is just plain text (backwards compatible)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1095,63 +1140,6 @@ func deactivateDeviceHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getDevicePublicKeyHandler retrieves a device's public key for key exchange
-func getDevicePublicKeyHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	if r.Method != http.MethodGet {
-		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	email := r.URL.Query().Get("email")
-	deviceFingerprint := r.URL.Query().Get("device_fingerprint")
-
-	if email == "" || deviceFingerprint == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Email and device_fingerprint are required"})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	var publicKey string
-	err := db.QueryRowContext(ctx, `
-		SELECT ud.public_key
-		FROM UserDevices ud
-		JOIN Users u ON ud.user_id = u.id
-		WHERE u.email = $1 AND ud.device_fingerprint = $2 AND ud.is_active = TRUE
-	`, strings.ToLower(email), deviceFingerprint).Scan(&publicKey)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Device not found"})
-			return
-		}
-		log.Printf("Failed to get public key: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve public key"})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"public_key": publicKey,
-	})
-}
-
 // csrfTokenHandler generates and returns a new CSRF token
 func csrfTokenHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -1200,20 +1188,7 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req TOTPSetupRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
-		return
-	}
-
-	if !csrfStore.ValidateToken(userEmail, req.CSRFToken) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
-		return
-	}
+	// No request body needed for setup - JWT auth is sufficient
 
 	secret, err := totp.GenerateSecret()
 	if err != nil {
@@ -1224,7 +1199,17 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = db.Exec(`UPDATE Users SET totp_secret = $1 WHERE id = $2`, secret, userID)
+	// Encrypt TOTP secret before storing
+	encryptedSecret, err := cryptography.EncryptSensitiveData(secret)
+	if err != nil {
+		log.Printf("Failed to encrypt TOTP secret for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to setup 2FA"})
+		return
+	}
+
+	_, err = db.Exec(`UPDATE Users SET totp_secret = $1 WHERE id = $2`, encryptedSecret, userID)
 	if err != nil {
 		log.Printf("Failed to store TOTP secret for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
@@ -1237,9 +1222,9 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(TOTPSetupResponse{
-		Secret: secret,
-		QRCode: qrCodeURL,
+	json.NewEncoder(w).Encode(map[string]string{
+		"secret":  secret,
+		"qr_code": qrCodeURL,
 	})
 }
 
@@ -1275,8 +1260,8 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var totpSecret string
-	err = db.QueryRow(`SELECT totp_secret FROM Users WHERE id = $1`, userID).Scan(&totpSecret)
+	var encryptedTotpSecret string
+	err = db.QueryRow(`SELECT totp_secret FROM Users WHERE id = $1`, userID).Scan(&encryptedTotpSecret)
 	if err != nil {
 		log.Printf("Failed to retrieve TOTP secret for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
@@ -1285,10 +1270,20 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if totpSecret == "" {
+	if encryptedTotpSecret == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Please setup 2FA first"})
+		return
+	}
+
+	// Decrypt TOTP secret
+	totpSecret, err := cryptography.DecryptSensitiveData(encryptedTotpSecret)
+	if err != nil {
+		log.Printf("Failed to decrypt TOTP secret for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to verify 2FA"})
 		return
 	}
 
@@ -1385,18 +1380,22 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validation.ValidateEmail(req.Email); err != false {
+	if !validation.ValidateEmail(req.Email) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid email format"})
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
 	var userID int
-	var totpSecret string
+	var encryptedTotpSecret string
 	var totpEnabled bool
-	err := db.QueryRow(`SELECT id, totp_secret, totp_enabled FROM Users WHERE email = $1`, req.Email).
-		Scan(&userID, &totpSecret, &totpEnabled)
+	var passwordHash string
+	err := db.QueryRowContext(ctx, `SELECT id, password_hash, totp_secret, totp_enabled FROM Users WHERE email = $1`, strings.ToLower(req.Email)).
+		Scan(&userID, &passwordHash, &encryptedTotpSecret, &totpEnabled)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -1404,10 +1403,29 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !totpEnabled || totpSecret == "" {
+	// Verify password
+	passwordValid, err := cryptography.VerifyPassword(req.Password, passwordHash)
+	if err != nil || !passwordValid {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid credentials"})
+		return
+	}
+
+	if !totpEnabled || encryptedTotpSecret == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "2FA not enabled"})
+		return
+	}
+
+	// Decrypt TOTP secret
+	totpSecret, err := cryptography.DecryptSensitiveData(encryptedTotpSecret)
+	if err != nil {
+		log.Printf("Failed to decrypt TOTP secret for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Validation failed"})
 		return
 	}
 
@@ -1427,7 +1445,25 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Generate JWT token after successful 2FA verification
+	token, err := jwt_auth.GenerateToken(userID, strings.ToLower(req.Email))
+	if err != nil {
+		log.Printf("Failed to generate JWT token: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to complete login"})
+		return
+	}
+
+	log.Printf("Successful 2FA login for user: %s", req.Email)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "2FA code valid"})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":    "Login successful",
+		"token":      token,
+		"user_id":    userID,
+		"email":      strings.ToLower(req.Email),
+		"expires_in": jwt_auth.GetTokenExpiration().Seconds(),
+	})
 }

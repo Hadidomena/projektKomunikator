@@ -10,15 +10,15 @@ import (
 )
 
 type LoginAttempt struct {
-	UserID            int
-	IPAddress         string
-	UserAgent         string
-	DeviceFingerprint string
-	Success           bool
-	NewDevice         bool
-	LoginTime         time.Time
-	Country           string
-	City              string
+	UserID            int       `json:"user_id"`
+	IPAddress         string    `json:"ip_address"`
+	UserAgent         string    `json:"user_agent"`
+	DeviceFingerprint string    `json:"device_fingerprint"`
+	Success           bool      `json:"success"`
+	NewDevice         bool      `json:"new_device"`
+	LoginTime         time.Time `json:"login_time"`
+	Country           string    `json:"country"`
+	City              string    `json:"city"`
 }
 
 func GenerateDeviceFingerprint(ipAddress, userAgent string) string {
