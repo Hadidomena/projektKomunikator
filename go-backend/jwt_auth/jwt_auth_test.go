@@ -29,7 +29,7 @@ func TestInitJWT(t *testing.T) {
 		{
 			name:        "Empty secret returns error",
 			secret:      "",
-			expectError: false,
+			expectError: true,
 		},
 	}
 
