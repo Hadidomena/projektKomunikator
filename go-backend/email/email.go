@@ -109,7 +109,11 @@ func generateVerificationCode() (string, error) {
 }
 
 func SendPasswordResetEmail(recipientEmail, token string) {
-	resetLink := fmt.Sprintf("http://localhost:3000/reset-password?token=%s", token)
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
+	resetLink := fmt.Sprintf("%s/reset-password?token=%s", frontendURL, token)
 	_ = fmt.Sprintf("Password Reset Request")
 	_ = fmt.Sprintf("Click the following link to reset your password: %s\n\nThis link will expire in 1 hour.", resetLink)
 

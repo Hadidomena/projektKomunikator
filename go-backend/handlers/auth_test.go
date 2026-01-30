@@ -27,17 +27,6 @@ func TestCheckPasswordStrengthHandler(t *testing.T) {
 	}
 }
 
-func TestCheckPasswordStrengthHandler_OptionsMethod(t *testing.T) {
-	r := httptest.NewRequest("OPTIONS", "/api/check-password-strength", nil)
-	w := httptest.NewRecorder()
-
-	handlers.CheckPasswordStrengthHandler(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200 for OPTIONS, got %d", w.Code)
-	}
-}
-
 func TestCheckPasswordStrengthHandler_InvalidMethod(t *testing.T) {
 	r := httptest.NewRequest("GET", "/api/check-password-strength", nil)
 	w := httptest.NewRecorder()

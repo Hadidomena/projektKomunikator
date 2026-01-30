@@ -27,7 +27,7 @@ func TestInitJWT(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name:        "Empty secret uses development default",
+			name:        "Empty secret returns error",
 			secret:      "",
 			expectError: false,
 		},

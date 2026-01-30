@@ -10,9 +10,8 @@ import (
 )
 
 var (
-	jwtSecret []byte
-
-	tokenExpiration = 24 * time.Hour
+	jwtSecret       []byte
+	tokenExpiration = 1 * time.Hour
 )
 
 // Claims represents the JWT claims
@@ -26,7 +25,7 @@ type Claims struct {
 func InitJWT() error {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		secret = "development-secret-key-change-in-production"
+		return errors.New("JWT_SECRET environment variable not set")
 	}
 
 	if len(secret) < 32 {

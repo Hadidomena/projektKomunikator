@@ -18,6 +18,7 @@ import (
 	"github.com/Hadidomena/projektKomunikator/handlers"
 	jwt_auth "github.com/Hadidomena/projektKomunikator/jwt_auth"
 	message_utils "github.com/Hadidomena/projektKomunikator/message_utils"
+	"github.com/Hadidomena/projektKomunikator/middleware"
 	passwordutils "github.com/Hadidomena/projektKomunikator/password_utils"
 	"github.com/Hadidomena/projektKomunikator/totp"
 	"github.com/Hadidomena/projektKomunikator/validation"
@@ -123,8 +124,7 @@ var (
 func init() {
 	appPepper := os.Getenv("PEPPER")
 	if appPepper == "" {
-		appPepper = "testPepper"
-		// panic("SECURITY ERROR: PEPPER environment variable not set")
+		log.Fatal("SECURITY ERROR: PEPPER environment variable not set")
 	}
 	cryptography.SetPepper(appPepper)
 
@@ -140,12 +140,17 @@ func init() {
 
 func main() {
 	var err error
-	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+	sslMode := os.Getenv("DB_SSLMODE")
+	if sslMode == "" {
+		sslMode = "require"
+	}
+	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		os.Getenv("DB_HOST"),
 		os.Getenv("DB_PORT"),
 		os.Getenv("DB_USER"),
 		os.Getenv("DB_PASSWORD"),
-		os.Getenv("DB_NAME"))
+		os.Getenv("DB_NAME"),
+		sslMode)
 
 	db, err = sql.Open("postgres", connStr)
 	if err != nil {
@@ -200,9 +205,55 @@ func main() {
 	if err := jwt_auth.InitJWT(); err != nil {
 		log.Fatalf("Failed to initialize JWT: %v", err)
 	}
+	generalLimiter := middleware.NewRateLimiter(100, time.Minute)
+	authLimiter := middleware.NewRateLimiter(10, time.Minute)
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/register", handlers.RegisterHandler)
+	mux.HandleFunc("/api/login", handlers.LoginHandler)
+	mux.HandleFunc("/api/check-password-strength", handlers.CheckPasswordStrengthHandler)
+	mux.HandleFunc("/api/csrf-token", authMiddleware(csrfTokenHandler))
+	mux.HandleFunc("/api/2fa/status", authMiddleware(totpStatusHandler))
+	mux.HandleFunc("/api/2fa/setup", authMiddleware(totpSetupHandler))
+	mux.HandleFunc("/api/2fa/verify", authMiddleware(totpVerifyHandler))
+	mux.HandleFunc("/api/2fa/disable", authMiddleware(totpDisableHandler))
+	mux.HandleFunc("/api/2fa/validate", totpValidateHandler)
+	mux.HandleFunc("/api/messages/send", authMiddleware(sendMessageHandler))
+	mux.HandleFunc("/api/messages", authMiddleware(getInboxHandler))
+	mux.HandleFunc("/api/messages/mark-read", authMiddleware(markMessageAsReadHandler))
+	mux.HandleFunc("/api/messages/delete", authMiddleware(deleteMessageHandler))
+	mux.HandleFunc("/api/messages/sent", authMiddleware(getSentMessagesHandler))
+	mux.HandleFunc("/api/messages/get", authMiddleware(getMessageHandler))
+	mux.HandleFunc("/api/devices/register", authMiddleware(registerDeviceHandler))
+	mux.HandleFunc("/api/devices", authMiddleware(listDevicesHandler))
+	mux.HandleFunc("/api/devices/remove", authMiddleware(deactivateDeviceHandler))
+	mux.HandleFunc("/api/password-reset/request", handlers.PasswordResetRequestHandler)
+	mux.HandleFunc("/api/password-reset/verify", handlers.PasswordResetVerifyHandler)
+	mux.HandleFunc("/api/login-history", authMiddleware(loginHistoryHandler))
+	mux.HandleFunc("/api/admin/honeypot-stats", authMiddleware(honeypotStatsHandler))
+
+	conditionalRateLimiter := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/login") ||
+			strings.HasPrefix(r.URL.Path, "/api/register") ||
+			strings.HasPrefix(r.URL.Path, "/api/password-reset") {
+			authLimiter.RateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mux.ServeHTTP(w, r)
+			})).ServeHTTP(w, r)
+		} else {
+			generalLimiter.RateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mux.ServeHTTP(w, r)
+			})).ServeHTTP(w, r)
+		}
+	})
+
+	handler := middleware.SecurityHeadersMiddleware(
+		middleware.CORSMiddleware(conditionalRateLimiter),
+	)
 
 	fmt.Println("Go backend server starting on port 8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	fmt.Println("Security features enabled: CORS, Rate Limiting, Security Headers")
+	log.Fatal(http.ListenAndServe(":8080", handler))
 }
 
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
