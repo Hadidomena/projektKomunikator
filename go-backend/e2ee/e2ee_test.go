@@ -3,6 +3,8 @@ package e2ee
 import (
 	"os"
 	"testing"
+
+	"github.com/Hadidomena/projektKomunikator/cryptography"
 )
 
 func TestGenerateDeviceKeys(t *testing.T) {
@@ -59,6 +61,10 @@ func TestGenerateDeviceFingerprint(t *testing.T) {
 func TestStoreAndRetrievePrivateKey(t *testing.T) {
 	fingerprint := "test_fingerprint_12345"
 	privateKey := "test_private_key_abc123"
+
+	if err := cryptography.InitializeEncryptionKey("test_master_secret"); err != nil {
+		t.Fatalf("Failed to initialize encryption key: %v", err)
+	}
 
 	// Store the key
 	err := StorePrivateKeyInEnv(fingerprint, privateKey)

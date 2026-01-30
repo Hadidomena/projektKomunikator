@@ -43,15 +43,27 @@ func GenerateDeviceFingerprint(userID int, deviceName, publicKey string) string 
 
 func StorePrivateKeyInEnv(fingerprint, privateKey string) error {
 	envVarName := fmt.Sprintf("E2EE_PRIVATE_KEY_%s", fingerprint)
-	return os.Setenv(envVarName, privateKey)
+	encrypted, err := cryptography.EncryptSensitiveData(privateKey)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt private key: %w", err)
+	}
+
+	return os.Setenv(envVarName, encrypted)
 }
 
 func GetPrivateKeyFromEnv(fingerprint string) (string, error) {
 	envVarName := fmt.Sprintf("E2EE_PRIVATE_KEY_%s", fingerprint)
-	privateKey := os.Getenv(envVarName)
-	if privateKey == "" {
+	encrypted := os.Getenv(envVarName)
+	if encrypted == "" {
 		return "", fmt.Errorf("private key not found for device %s", fingerprint)
 	}
+
+	// Decrypt before returning
+	privateKey, err := cryptography.DecryptSensitiveData(encrypted)
+	if err != nil {
+		return "", fmt.Errorf("failed to decrypt private key for device %s: %w", fingerprint, err)
+	}
+
 	return privateKey, nil
 }
 
