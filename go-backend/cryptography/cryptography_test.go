@@ -121,3 +121,106 @@ func TestGenerateE2EEKeys(t *testing.T) {
 		t.Errorf("Generated keys should not be the same between two generations")
 	}
 }
+
+func TestDeriveKeyFromPassword(t *testing.T) {
+	key1, err := DeriveKeyFromPassword("testPassword123", 1)
+	if err != nil {
+		t.Fatalf("Failed to derive key: %v", err)
+	}
+	if len(key1) != 32 {
+		t.Errorf("Expected 32-byte key, got %d bytes", len(key1))
+	}
+
+	key2, err := DeriveKeyFromPassword("testPassword123", 1)
+	if err != nil {
+		t.Fatalf("Failed to derive key: %v", err)
+	}
+	for i := range key1 {
+		if key1[i] != key2[i] {
+			t.Errorf("Same inputs should produce same key")
+			break
+		}
+	}
+
+	key3, err := DeriveKeyFromPassword("testPassword123", 2)
+	if err != nil {
+		t.Fatalf("Failed to derive key: %v", err)
+	}
+	same := true
+	for i := range key1 {
+		if key1[i] != key3[i] {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Errorf("Different userID should produce different key")
+	}
+
+	key4, err := DeriveKeyFromPassword("differentPassword", 1)
+	if err != nil {
+		t.Fatalf("Failed to derive key: %v", err)
+	}
+	same = true
+	for i := range key1 {
+		if key1[i] != key4[i] {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Errorf("Different password should produce different key")
+	}
+
+	_, err = DeriveKeyFromPassword("", 1)
+	if err == nil {
+		t.Errorf("Empty password should return error")
+	}
+}
+
+func TestEncryptDecryptForUser(t *testing.T) {
+	err := InitializeEncryptionKey("test-master-secret-for-testing-purposes")
+	if err != nil {
+		t.Fatalf("Failed to initialize encryption key: %v", err)
+	}
+
+	password := "userPassword123"
+	userID := 42
+	plaintext := "This is a secret private key or TOTP secret"
+
+	encrypted, err := EncryptForUser(plaintext, password, userID)
+	if err != nil {
+		t.Fatalf("Failed to encrypt: %v", err)
+	}
+	if encrypted == plaintext {
+		t.Errorf("Encrypted data should differ from plaintext")
+	}
+
+	decrypted, err := DecryptForUser(encrypted, password, userID)
+	if err != nil {
+		t.Fatalf("Failed to decrypt: %v", err)
+	}
+	if decrypted != plaintext {
+		t.Errorf("Decrypted data should match original plaintext")
+	}
+
+	_, err = DecryptForUser(encrypted, "wrongPassword", userID)
+	if err == nil {
+		t.Errorf("Decryption with wrong password should fail")
+	}
+
+	_, err = DecryptForUser(encrypted, password, 999)
+	if err == nil {
+		t.Errorf("Decryption with wrong userID should fail")
+	}
+
+	_, err = EncryptForUser("", password, userID)
+	if err == nil {
+		t.Errorf("Encryption of empty plaintext should fail")
+	}
+
+	_, err = EncryptForUser(plaintext, "", userID)
+	if err == nil {
+		t.Errorf("Encryption with empty password should fail")
+	}
+}

@@ -41,8 +41,7 @@ type LoginRequest struct {
 type SendMessageRequest struct {
 	ReceiverEmail string                     `json:"receiver_email"`
 	Content       string                     `json:"content"`
-	DeviceID      int                        `json:"device_id,omitempty"`   // Optional: sender's device ID
-	Encrypted     bool                       `json:"encrypted,omitempty"`   // Is the message encrypted?
+	DeviceID      int                        `json:"device_id"`             // Required: sender's device ID for E2EE
 	Signature     string                     `json:"signature,omitempty"`   // Message signature for authenticity
 	CSRFToken     string                     `json:"csrf_token"`            // CSRF token
 	Attachments   []message_utils.Attachment `json:"attachments,omitempty"` // Attachments (will be encrypted with message)
@@ -51,6 +50,7 @@ type SendMessageRequest struct {
 type RegisterDeviceRequest struct {
 	DeviceName string `json:"device_name"`
 	PublicKey  string `json:"public_key,omitempty"` // Optional: if client provides key
+	Password   string `json:"password"`             // Required: user's password for encrypting private key
 }
 
 type DeviceResponse struct {
@@ -90,6 +90,7 @@ type PasswordResetVerify struct {
 
 type TOTPSetupRequest struct {
 	CSRFToken string `json:"csrf_token"`
+	Password  string `json:"password"` // Required: to encrypt the TOTP secret for the user
 }
 
 type TOTPSetupResponse struct {
@@ -368,9 +369,17 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// E2EE is mandatory - require device ID
+	if req.DeviceID <= 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Device ID is required for E2EE encryption"})
+		return
+	}
+
 	// Log attachments info
 	if len(req.Attachments) > 0 {
-		log.Printf("Sending message with %d attachments from %s to %s", len(req.Attachments), senderEmail, req.ReceiverEmail)
+		log.Printf("Sending encrypted message with %d attachments from %s to %s", len(req.Attachments), senderEmail, req.ReceiverEmail)
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -392,106 +401,70 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	messageContent := req.Content
-	var encryptedKey *string
-
-	// If message has attachments, serialize them with content
-	if len(req.Attachments) > 0 {
-		msgWithAttachments := message_utils.MessageWithAttachments{
-			Content:     req.Content,
-			Attachments: req.Attachments,
-		}
-		// Serialize to JSON for storage
-		jsonData, err := json.Marshal(msgWithAttachments)
-		if err != nil {
-			log.Printf("Failed to serialize message with attachments: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to process attachments"})
-			return
-		}
-		messageContent = string(jsonData)
+	var senderDeviceFingerprint string
+	err = db.QueryRowContext(ctx,
+		"SELECT device_fingerprint FROM UserDevices WHERE id = $1 AND user_id = $2 AND is_active = TRUE",
+		req.DeviceID, senderID).Scan(&senderDeviceFingerprint)
+	if err != nil {
+		log.Printf("Failed to get sender device: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid sender device - please register a device first"})
+		return
 	}
 
-	if req.Encrypted && req.DeviceID > 0 {
-		// Get sender's device private key from environment
-		var senderDeviceFingerprint string
-		err = db.QueryRowContext(ctx,
-			"SELECT device_fingerprint FROM UserDevices WHERE id = $1 AND user_id = $2 AND is_active = TRUE",
-			req.DeviceID, senderID).Scan(&senderDeviceFingerprint)
-		if err != nil {
-			log.Printf("Failed to get sender device: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid sender device"})
-			return
-		}
-
-		senderPrivateKey, err := e2ee.GetPrivateKeyFromEnv(senderDeviceFingerprint)
-		if err != nil {
-			log.Printf("Failed to get sender private key: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "E2EE key not available"})
-			return
-		}
-
-		var receiverPublicKey string
-		var receiverDeviceID int
-		err = db.QueryRowContext(ctx,
-			"SELECT id, public_key FROM UserDevices WHERE user_id = $1 AND is_active = TRUE ORDER BY last_used DESC LIMIT 1",
-			receiverID).Scan(&receiverDeviceID, &receiverPublicKey)
-		if err != nil {
-			log.Printf("Failed to get receiver device: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Receiver has no active devices for E2EE"})
-			return
-		}
-
-		sharedSecret, err := e2ee.ComputeSharedSecret(senderPrivateKey, receiverPublicKey)
-		if err != nil {
-			log.Printf("Failed to compute shared secret: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "E2EE encryption failed"})
-			return
-		}
-
-		encryptionKey := sharedSecret[:32]
-
-		// Create message with attachments structure
-		msgWithAttachments := message_utils.MessageWithAttachments{
-			Content:     req.Content,
-			Attachments: req.Attachments,
-		}
-
-		encryptedContent, err := message_utils.EncryptMessageWithAttachments(msgWithAttachments, encryptionKey)
-		if err != nil {
-			log.Printf("Failed to encrypt message: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Message encryption failed"})
-			return
-		}
-
-		messageContent = encryptedContent
-		encKeyStr := "e2ee"
-		encryptedKey = &encKeyStr
-
-		req.DeviceID = receiverDeviceID
+	senderPrivateKey, err := e2ee.GetPrivateKeyFromEnv(senderDeviceFingerprint)
+	if err != nil {
+		log.Printf("Failed to get sender private key: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "E2EE key not available - please re-register your device"})
+		return
 	}
+
+	var receiverPublicKey string
+	var receiverDeviceID int
+	err = db.QueryRowContext(ctx,
+		"SELECT id, public_key FROM UserDevices WHERE user_id = $1 AND is_active = TRUE ORDER BY last_used DESC LIMIT 1",
+		receiverID).Scan(&receiverDeviceID, &receiverPublicKey)
+	if err != nil {
+		log.Printf("Failed to get receiver device: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Receiver has no active devices for E2EE - they must register a device first"})
+		return
+	}
+
+	sharedSecret, err := e2ee.ComputeSharedSecret(senderPrivateKey, receiverPublicKey)
+	if err != nil {
+		log.Printf("Failed to compute shared secret: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "E2EE encryption failed"})
+		return
+	}
+
+	encryptionKey := sharedSecret[:32]
+	msgWithAttachments := message_utils.MessageWithAttachments{
+		Content:     req.Content,
+		Attachments: req.Attachments,
+	}
+
+	encryptedContent, err := message_utils.EncryptMessageWithAttachments(msgWithAttachments, encryptionKey)
+	if err != nil {
+		log.Printf("Failed to encrypt message: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message encryption failed"})
+		return
+	}
+
+	encKeyStr := "e2ee"
 
 	var messageID int
-	if encryptedKey != nil {
-		err = db.QueryRowContext(ctx,
-			"INSERT INTO Messages (sender_id, sender_device_id, receiver_id, receiver_device_id, content, encrypted_key, message_signature) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
-			senderID, req.DeviceID, receiverID, req.DeviceID, messageContent, encryptedKey, req.Signature).Scan(&messageID)
-	} else {
-		err = db.QueryRowContext(ctx,
-			"INSERT INTO Messages (sender_id, receiver_id, content, message_signature) VALUES ($1, $2, $3, $4) RETURNING id",
-			senderID, receiverID, messageContent, req.Signature).Scan(&messageID)
-	}
+	err = db.QueryRowContext(ctx,
+		"INSERT INTO Messages (sender_id, sender_device_id, receiver_id, receiver_device_id, content, encrypted_key, message_signature) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+		senderID, req.DeviceID, receiverID, receiverDeviceID, encryptedContent, encKeyStr, req.Signature).Scan(&messageID)
 	if err != nil {
 		log.Printf("Failed to insert message: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -502,14 +475,11 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	response := map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"message":    "Message sent successfully",
 		"message_id": messageID,
-	}
-	if encryptedKey != nil {
-		response["encrypted"] = true
-	}
-	json.NewEncoder(w).Encode(response)
+		"encrypted":  true,
+	})
 }
 
 // getInboxHandler retrieves inbox messages for the authenticated user
@@ -956,6 +926,13 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Password == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Password is required to secure the private key"})
+		return
+	}
+
 	deviceKeys, err := e2ee.GenerateDeviceKeys(userID, req.DeviceName)
 	if err != nil {
 		log.Printf("Failed to generate device keys: %v", err)
@@ -968,6 +945,15 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 	publicKey := deviceKeys.PublicKey
 	if req.PublicKey != "" {
 		publicKey = req.PublicKey
+	}
+
+	encryptedPrivateKey, err := cryptography.EncryptForUser(deviceKeys.PrivateKey, req.Password, userID)
+	if err != nil {
+		log.Printf("Failed to encrypt private key for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to secure private key"})
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -999,11 +985,11 @@ func registerDeviceHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message":            "Device registered successfully",
-		"device_id":          deviceID,
-		"device_fingerprint": deviceKeys.DeviceFingerprint,
-		"public_key":         publicKey,
-		"private_key":        deviceKeys.PrivateKey, // Return once to client - client must store securely
+		"message":               "Device registered successfully",
+		"device_id":             deviceID,
+		"device_fingerprint":    deviceKeys.DeviceFingerprint,
+		"public_key":            publicKey,
+		"encrypted_private_key": encryptedPrivateKey,
 	})
 }
 
@@ -1199,7 +1185,20 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// No request body needed for setup - JWT auth is sufficient
+	var req TOTPSetupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		return
+	}
+
+	if req.Password == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Password is required to secure the 2FA secret"})
+		return
+	}
 
 	secret, err := totp.GenerateSecret()
 	if err != nil {
@@ -1210,8 +1209,7 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Encrypt TOTP secret before storing
-	encryptedSecret, err := cryptography.EncryptSensitiveData(secret)
+	encryptedSecretForDB, err := cryptography.EncryptSensitiveData(secret)
 	if err != nil {
 		log.Printf("Failed to encrypt TOTP secret for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
@@ -1220,9 +1218,18 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = db.Exec(`UPDATE Users SET totp_secret = $1 WHERE id = $2`, encryptedSecret, userID)
+	_, err = db.Exec(`UPDATE Users SET totp_secret = $1 WHERE id = $2`, encryptedSecretForDB, userID)
 	if err != nil {
 		log.Printf("Failed to store TOTP secret for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to setup 2FA"})
+		return
+	}
+
+	encryptedSecretForUser, err := cryptography.EncryptForUser(secret, req.Password, userID)
+	if err != nil {
+		log.Printf("Failed to encrypt TOTP secret for transmission to user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to setup 2FA"})
@@ -1234,8 +1241,8 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
-		"secret":  secret,
-		"qr_code": qrCodeURL,
+		"encrypted_secret": encryptedSecretForUser, // Encrypted with user's password
+		"qr_code":          qrCodeURL,              // QR code URL for authenticator app
 	})
 }
 

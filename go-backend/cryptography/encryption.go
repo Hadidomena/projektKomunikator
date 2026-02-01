@@ -21,7 +21,7 @@ func InitializeEncryptionKey(masterSecret string) error {
 		return fmt.Errorf("master secret cannot be empty")
 	}
 
-	salt := []byte("projektKomunikator-encryption-v1") // Application-specific salt
+	salt := []byte("projektKomunikator-encryption-v1")
 	info := []byte("sensitive-data-encryption")
 	hkdfReader := hkdf.New(sha256.New, []byte(masterSecret), salt, info)
 
@@ -170,4 +170,42 @@ func DecryptWithKey(ciphertextB64 string, key []byte) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// DeriveKeyFromPassword derives a 32-byte encryption key from a password using HKDF
+func DeriveKeyFromPassword(password string, userID int) ([]byte, error) {
+	if password == "" {
+		return nil, fmt.Errorf("password cannot be empty")
+	}
+
+	salt := []byte(fmt.Sprintf("projektKomunikator-user-%d-key-v1", userID))
+	info := []byte("user-sensitive-data-encryption")
+	hkdfReader := hkdf.New(sha256.New, []byte(password), salt, info)
+
+	key := make([]byte, 32)
+	if _, err := io.ReadFull(hkdfReader, key); err != nil {
+		return nil, fmt.Errorf("failed to derive key from password: %w", err)
+	}
+
+	return key, nil
+}
+
+// EncryptForUser encrypts sensitive data using a key derived from the user's password
+func EncryptForUser(plaintext, password string, userID int) (string, error) {
+	key, err := DeriveKeyFromPassword(password, userID)
+	if err != nil {
+		return "", fmt.Errorf("failed to derive encryption key: %w", err)
+	}
+
+	return EncryptWithKey(plaintext, key)
+}
+
+// DecryptForUser decrypts using key from users password
+func DecryptForUser(ciphertextB64, password string, userID int) (string, error) {
+	key, err := DeriveKeyFromPassword(password, userID)
+	if err != nil {
+		return "", fmt.Errorf("failed to derive encryption key: %w", err)
+	}
+
+	return DecryptWithKey(ciphertextB64, key)
 }
