@@ -4,6 +4,8 @@ CREATE TABLE Users (
     username VARCHAR(50) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
+    e2ee_public_key TEXT,
+    e2ee_private_key_encrypted TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     is_blocked BOOLEAN DEFAULT FALSE,
     failed_login_attempts INTEGER DEFAULT 0,
@@ -13,37 +15,62 @@ CREATE TABLE Users (
     totp_verified_at TIMESTAMP WITH TIME ZONE
 );
 
--- Create the UserDevices table for E2EE multi-device support
-CREATE TABLE UserDevices (
+-- RatchetStates table for Double Ratchet protocol state management
+CREATE TABLE RatchetStates (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL,
-    device_name VARCHAR(100) NOT NULL,
-    public_key TEXT NOT NULL,
-    device_fingerprint VARCHAR(255) UNIQUE NOT NULL,
-    last_used TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    peer_user_id INTEGER NOT NULL,
+    root_key TEXT NOT NULL,
+    sending_chain_key TEXT NOT NULL,
+    receiving_chain_key TEXT NOT NULL,
+    sending_chain_length INTEGER DEFAULT 0,
+    receiving_chain_length INTEGER DEFAULT 0,
+    previous_chain_length INTEGER DEFAULT 0,
+    dh_public_key TEXT NOT NULL,
+    dh_peer_public_key TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT TRUE,
-    CONSTRAINT fk_user_device
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_ratchet_user
         FOREIGN KEY(user_id)
         REFERENCES Users(id)
         ON DELETE CASCADE,
-    CONSTRAINT unique_user_device UNIQUE(user_id, device_fingerprint)
+    CONSTRAINT fk_ratchet_peer
+        FOREIGN KEY(peer_user_id)
+        REFERENCES Users(id)
+        ON DELETE CASCADE,
+    CONSTRAINT unique_ratchet_pair UNIQUE(user_id, peer_user_id)
 );
 
--- Create index for faster device lookups
-CREATE INDEX idx_user_devices_user ON UserDevices(user_id) WHERE is_active = TRUE;
-CREATE INDEX idx_user_devices_fingerprint ON UserDevices(device_fingerprint);
+-- SkippedMessageKeys table for out-of-order message handling
+CREATE TABLE SkippedMessageKeys (
+    id SERIAL PRIMARY KEY,
+    ratchet_state_id INTEGER NOT NULL,
+    message_number INTEGER NOT NULL,
+    message_key TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_skipped_ratchet
+        FOREIGN KEY(ratchet_state_id)
+        REFERENCES RatchetStates(id)
+        ON DELETE CASCADE,
+    CONSTRAINT unique_skipped_message UNIQUE(ratchet_state_id, message_number)
+);
+
+-- Create indexes for ratchet state lookups
+CREATE INDEX idx_ratchet_user ON RatchetStates(user_id);
+CREATE INDEX idx_ratchet_peer ON RatchetStates(peer_user_id);
+CREATE INDEX idx_skipped_keys_ratchet ON SkippedMessageKeys(ratchet_state_id);
 
 -- Create the Messages table with sender and receiver
 CREATE TABLE Messages (
     id SERIAL PRIMARY KEY,
     sender_id INTEGER NOT NULL,
-    sender_device_id INTEGER,
     receiver_id INTEGER NOT NULL,
-    receiver_device_id INTEGER,
     content TEXT NOT NULL,
     encrypted_key TEXT,
     message_signature TEXT,
+    dh_public_key TEXT,
+    message_number INTEGER,
+    previous_chain_length INTEGER,
     is_read BOOLEAN DEFAULT FALSE,
     is_deleted_by_sender BOOLEAN DEFAULT FALSE,
     is_deleted_by_receiver BOOLEAN DEFAULT FALSE,
@@ -56,21 +83,14 @@ CREATE TABLE Messages (
     CONSTRAINT fk_receiver
         FOREIGN KEY(receiver_id)
         REFERENCES Users(id)
-        ON DELETE CASCADE,
-    CONSTRAINT fk_sender_device
-        FOREIGN KEY(sender_device_id)
-        REFERENCES UserDevices(id)
-        ON DELETE SET NULL,
-    CONSTRAINT fk_receiver_device
-        FOREIGN KEY(receiver_device_id)
-        REFERENCES UserDevices(id)
-        ON DELETE SET NULL
+        ON DELETE CASCADE
 );
 
 -- Create index for faster message queries
 CREATE INDEX idx_messages_receiver ON Messages(receiver_id) WHERE is_deleted_by_receiver = FALSE;
 CREATE INDEX idx_messages_sender ON Messages(sender_id) WHERE is_deleted_by_sender = FALSE;
 CREATE INDEX idx_messages_unread ON Messages(receiver_id, is_read) WHERE is_deleted_by_receiver = FALSE;
+
 -- Password reset tokens table
 CREATE TABLE PasswordResetTokens (
     id SERIAL PRIMARY KEY,

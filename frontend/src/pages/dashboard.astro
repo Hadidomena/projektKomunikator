@@ -273,8 +273,7 @@
           body: JSON.stringify({
             receiver_email: receiverEmail,
             content: messageContent,
-            encrypted: false, // Set to false for now (E2EE requires registered devices)
-            device_id: 0,
+            encrypted: false, // Set to false for now (E2EE requires setup)
             csrf_token: csrfToken,
             attachments: attachments
           })

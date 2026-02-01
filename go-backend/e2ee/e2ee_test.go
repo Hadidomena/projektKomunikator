@@ -1,10 +1,7 @@
 package e2ee
 
 import (
-	"os"
 	"testing"
-
-	"github.com/Hadidomena/projektKomunikator/cryptography"
 )
 
 func TestGenerateDeviceKeys(t *testing.T) {
@@ -55,44 +52,6 @@ func TestGenerateDeviceFingerprint(t *testing.T) {
 	fingerprint3 := GenerateDeviceFingerprint(userID, "Mobile", publicKey)
 	if fingerprint1 == fingerprint3 {
 		t.Error("Different device names should produce different fingerprints")
-	}
-}
-
-func TestStoreAndRetrievePrivateKey(t *testing.T) {
-	fingerprint := "test_fingerprint_12345"
-	privateKey := "test_private_key_abc123"
-
-	if err := cryptography.InitializeEncryptionKey("test_master_secret"); err != nil {
-		t.Fatalf("Failed to initialize encryption key: %v", err)
-	}
-
-	// Store the key
-	err := StorePrivateKeyInEnv(fingerprint, privateKey)
-	if err != nil {
-		t.Fatalf("Failed to store private key: %v", err)
-	}
-
-	// Retrieve the key
-	retrieved, err := GetPrivateKeyFromEnv(fingerprint)
-	if err != nil {
-		t.Fatalf("Failed to retrieve private key: %v", err)
-	}
-
-	if retrieved != privateKey {
-		t.Errorf("Expected %s, got %s", privateKey, retrieved)
-	}
-
-	// Clean up
-	envVarName := "E2EE_PRIVATE_KEY_" + fingerprint
-	os.Unsetenv(envVarName)
-}
-
-func TestGetPrivateKeyFromEnv_NotFound(t *testing.T) {
-	fingerprint := "nonexistent_fingerprint"
-
-	_, err := GetPrivateKeyFromEnv(fingerprint)
-	if err == nil {
-		t.Error("Expected error when retrieving non-existent private key")
 	}
 }
 
@@ -167,30 +126,5 @@ func TestDeviceKeyPairStructure(t *testing.T) {
 
 	if keys.PrivateKey != "private_key_data" {
 		t.Error("PrivateKey not set correctly")
-	}
-}
-
-func TestDeviceInfoStructure(t *testing.T) {
-	info := &DeviceInfo{
-		ID:                1,
-		UserID:            100,
-		DeviceName:        "TestDevice",
-		PublicKey:         "test_public_key",
-		DeviceFingerprint: "test_fingerprint",
-		LastUsed:          "2026-01-15T10:00:00Z",
-		CreatedAt:         "2026-01-01T10:00:00Z",
-		IsActive:          true,
-	}
-
-	if info.ID != 1 || info.UserID != 100 {
-		t.Error("DeviceInfo IDs not set correctly")
-	}
-
-	if info.DeviceName != "TestDevice" {
-		t.Error("DeviceName not set correctly")
-	}
-
-	if !info.IsActive {
-		t.Error("IsActive should be true")
 	}
 }

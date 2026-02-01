@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Hadidomena/projektKomunikator/cryptography"
+	"github.com/Hadidomena/projektKomunikator/e2ee"
 	"github.com/Hadidomena/projektKomunikator/honeypot"
 	passwordutils "github.com/Hadidomena/projektKomunikator/password_utils"
 	"github.com/Hadidomena/projektKomunikator/validation"
@@ -126,7 +127,29 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		hashedPassword = result.hash
 	}
 
-	_, err = ctx.DB.ExecContext(ctx2, "INSERT INTO Users (username, email, password_hash) VALUES ($1, $2, $3)", req.Username, strings.ToLower(req.Email), hashedPassword)
+	// Generate E2EE keys for the user
+	deviceKeys, err := e2ee.GenerateDeviceKeys(0, "user-keys") // userID will be set after insert
+	if err != nil {
+		log.Printf("Failed to generate E2EE keys: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
+		return
+	}
+
+	// Encrypt private key with user's password
+	encryptedPrivateKey, err := cryptography.EncryptForUser(deviceKeys.PrivateKey, req.Password, 0)
+	if err != nil {
+		log.Printf("Failed to encrypt private key: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
+		return
+	}
+
+	_, err = ctx.DB.ExecContext(ctx2,
+		"INSERT INTO Users (username, email, password_hash, e2ee_public_key, e2ee_private_key_encrypted) VALUES ($1, $2, $3, $4, $5)",
+		req.Username, strings.ToLower(req.Email), hashedPassword, deviceKeys.PublicKey, encryptedPrivateKey)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			w.Header().Set("Content-Type", "application/json")

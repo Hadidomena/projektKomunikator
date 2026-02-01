@@ -30,15 +30,6 @@
     .message { margin-top: 15px; padding: 10px; border-radius: 5px; font-size: 14px; display: none; }
     .message.error { background: #fee; color: #c33; border: 1px solid #fcc; display: block; }
     .message.success { background: #efe; color: #3c3; border: 1px solid #cfc; display: block; }
-    .device-list { margin-top: 15px; }
-    .device-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f8f9fa; border-radius: 5px; margin-bottom: 10px; }
-    .device-info { flex: 1; }
-    .device-name { font-weight: 600; color: #333; }
-    .device-fingerprint { font-size: 12px; color: #999; margin-top: 3px; font-family: monospace; }
-    .device-date { font-size: 12px; color: #666; margin-top: 3px; }
-    .status-badge { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; margin-left: 10px; }
-    .status-badge.active { background: #c6f6d5; color: #22543d; }
-    .status-badge.inactive { background: #fed7d7; color: #742a2a; }
     .hidden { display: none; }
     .login-history { margin-top: 15px; max-height: 400px; overflow-y: auto; }
     .login-item { padding: 10px; background: #f8f9fa; border-radius: 5px; margin-bottom: 8px; font-size: 13px; }
@@ -84,19 +75,6 @@
         <p class="message success">✓ 2FA is currently enabled for your account</p>
         <button class="danger" id="disable2faBtn">Disable 2FA</button>
         <div id="disable2faMessage" class="message"></div>
-      </div>
-    </div>
-
-    <!-- Devices Section -->
-    <div class="section">
-      <h2>📱 Devices</h2>
-      <p>Manage devices that can decrypt your messages</p>
-      
-      <button id="registerDeviceBtn">Register New Device</button>
-      <div id="registerDeviceMessage" class="message"></div>
-      
-      <div class="device-list" id="deviceList">
-        <p style="color: #999;">Loading devices...</p>
       </div>
     </div>
 
@@ -159,7 +137,6 @@
     async function init() {
       await fetchCSRFToken();
       await check2FAStatus();
-      await loadDevices();
       await loadLoginHistory();
       await loadHoneypotStats();
     }
@@ -200,10 +177,23 @@
 
     // 2FA Management
     document.getElementById('enable2faBtn')?.addEventListener('click', async () => {
+      const password = prompt('Enter your password to secure the 2FA secret:');
+      if (!password) {
+        showMessage('enable2faMessage', 'Password is required', true);
+        return;
+      }
+
       try {
         const response = await fetch(`${API_URL}/api/2fa/setup`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ 
+            csrf_token: csrfToken,
+            password: password
+          })
         });
 
         const data = await response.json();
@@ -321,105 +311,6 @@
         showMessage('disable2faMessage', 'Failed to disable 2FA', true);
       }
     });
-
-    // Device Management
-    document.getElementById('registerDeviceBtn')?.addEventListener('click', async () => {
-      const deviceName = prompt('Enter device name:');
-      if (!deviceName) return;
-
-      try {
-        const response = await fetch(`${API_URL}/api/devices/register`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ device_name: deviceName })
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-          // Store device keys in localStorage for E2EE
-          const deviceKeys = {
-            device_id: data.device_id,
-            device_fingerprint: data.device_fingerprint,
-            public_key: data.public_key,
-            private_key: data.private_key
-          };
-          
-          // Store in localStorage (in production, use more secure storage)
-          const existingDevices = JSON.parse(localStorage.getItem('device_keys') || '[]');
-          existingDevices.push(deviceKeys);
-          localStorage.setItem('device_keys', JSON.stringify(existingDevices));
-          
-          showMessage('registerDeviceMessage', `Device registered! Keys stored securely.`, false);
-          await loadDevices();
-        } else {
-          showMessage('registerDeviceMessage', data.message, true);
-        }
-      } catch (error) {
-        showMessage('registerDeviceMessage', 'Failed to register device', true);
-      }
-    });
-
-    async function loadDevices() {
-      try {
-        const response = await fetch(`${API_URL}/api/devices`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        const devices = await response.json();
-        console.log('Devices loaded:', devices);
-        const container = document.getElementById('deviceList');
-
-        if (!container) return;
-
-        if (!Array.isArray(devices) || devices.length === 0) {
-          container.innerHTML = '<p style="color: #999;">No devices registered</p>';
-          return;
-        }
-
-        container.innerHTML = devices.map((device: any) => `
-          <div class="device-item">
-            <div class="device-info">
-              <div class="device-name">
-                ${device.device_name}
-                <span class="status-badge ${device.is_active ? 'active' : 'inactive'}">
-                  ${device.is_active ? 'Active' : 'Inactive'}
-                </span>
-              </div>
-              <div class="device-fingerprint">${device.device_fingerprint}</div>
-              <div class="device-date">Last used: ${new Date(device.last_used).toLocaleString()}</div>
-            </div>
-            ${device.is_active ? `<button class="danger" onclick="removeDevice(${device.id})">Remove</button>` : ''}
-          </div>
-        `).join('');
-      } catch (error) {
-        console.error('Failed to load devices:', error);
-      }
-    }
-
-    (window as any).removeDevice = async function(deviceId: number) {
-      if (!confirm('Remove this device?')) return;
-
-      try {
-        const response = await fetch(`${API_URL}/api/devices/remove`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ device_id: deviceId })
-        });
-
-        if (response.ok) {
-          await loadDevices();
-        }
-      } catch (error) {
-        alert('Failed to remove device');
-      }
-    };
 
     async function loadLoginHistory() {
       try {

@@ -36,8 +36,11 @@ services:
     command: ["air", "-c", ".air.toml"]
     env_file:
       - .env
+    environment:
+      - DB_SSLMODE=require
     depends_on:
-      - database
+      database:
+        condition: service_healthy
 
   database:
     build:
@@ -51,8 +54,15 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./sql-database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./sql-database/init.sql:/docker-entrypoint-initdb.d/10-init.sql
       - postgres_data:/var/lib/postgresql/data
+      - postgres_ssl:/var/lib/postgresql/ssl
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
+  postgres_ssl:

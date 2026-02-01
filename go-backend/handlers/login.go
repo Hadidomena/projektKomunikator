@@ -104,7 +104,10 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var storedHash string
 	var userID int
 	var totpEnabled bool
-	err := ctx.DB.QueryRowContext(ctx2, "SELECT id, password_hash, totp_enabled FROM Users WHERE email = $1", emailAddr).Scan(&userID, &storedHash, &totpEnabled)
+	var publicKey, privateKeyEncrypted string
+	err := ctx.DB.QueryRowContext(ctx2,
+		"SELECT id, password_hash, totp_enabled, COALESCE(e2ee_public_key, ''), COALESCE(e2ee_private_key_encrypted, '') FROM Users WHERE email = $1",
+		emailAddr).Scan(&userID, &storedHash, &totpEnabled, &publicKey, &privateKeyEncrypted)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -214,13 +217,21 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Successful login for user: %s", emailAddr)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	response := map[string]interface{}{
 		"message":    "Login successful",
 		"token":      token,
 		"user_id":    userID,
 		"email":      emailAddr,
 		"expires_in": jwt_auth.GetTokenExpiration().Seconds(),
-	})
+	}
+
+	// Include E2EE keys if they exist
+	if publicKey != "" && privateKeyEncrypted != "" {
+		response["e2ee_public_key"] = publicKey
+		response["e2ee_private_key_encrypted"] = privateKeyEncrypted
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
 }
