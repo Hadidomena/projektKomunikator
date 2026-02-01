@@ -15,52 +15,9 @@ CREATE TABLE Users (
     totp_verified_at TIMESTAMP WITH TIME ZONE
 );
 
--- RatchetStates table for Double Ratchet protocol state management
-CREATE TABLE RatchetStates (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    peer_user_id INTEGER NOT NULL,
-    root_key TEXT NOT NULL,
-    sending_chain_key TEXT NOT NULL,
-    receiving_chain_key TEXT NOT NULL,
-    sending_chain_length INTEGER DEFAULT 0,
-    receiving_chain_length INTEGER DEFAULT 0,
-    previous_chain_length INTEGER DEFAULT 0,
-    dh_public_key TEXT NOT NULL,
-    dh_peer_public_key TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_ratchet_user
-        FOREIGN KEY(user_id)
-        REFERENCES Users(id)
-        ON DELETE CASCADE,
-    CONSTRAINT fk_ratchet_peer
-        FOREIGN KEY(peer_user_id)
-        REFERENCES Users(id)
-        ON DELETE CASCADE,
-    CONSTRAINT unique_ratchet_pair UNIQUE(user_id, peer_user_id)
-);
-
--- SkippedMessageKeys table for out-of-order message handling
-CREATE TABLE SkippedMessageKeys (
-    id SERIAL PRIMARY KEY,
-    ratchet_state_id INTEGER NOT NULL,
-    message_number INTEGER NOT NULL,
-    message_key TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_skipped_ratchet
-        FOREIGN KEY(ratchet_state_id)
-        REFERENCES RatchetStates(id)
-        ON DELETE CASCADE,
-    CONSTRAINT unique_skipped_message UNIQUE(ratchet_state_id, message_number)
-);
-
--- Create indexes for ratchet state lookups
-CREATE INDEX idx_ratchet_user ON RatchetStates(user_id);
-CREATE INDEX idx_ratchet_peer ON RatchetStates(peer_user_id);
-CREATE INDEX idx_skipped_keys_ratchet ON SkippedMessageKeys(ratchet_state_id);
-
 -- Create the Messages table with sender and receiver
+-- Each message contains all data needed for E2EE decryption (dh_public_key for ECDH)
+-- No server-side ratchet state needed - client handles key derivation
 CREATE TABLE Messages (
     id SERIAL PRIMARY KEY,
     sender_id INTEGER NOT NULL,

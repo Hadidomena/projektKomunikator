@@ -228,7 +228,13 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// Include E2EE keys if they exist
 	if publicKey != "" && privateKeyEncrypted != "" {
 		response["e2ee_public_key"] = publicKey
-		response["e2ee_private_key_encrypted"] = privateKeyEncrypted
+		decryptedPrivateKey, err := cryptography.DecryptForUser(privateKeyEncrypted, req.Password, userID)
+		if err != nil {
+			log.Printf("Warning: Failed to decrypt E2EE private key for user %d: %v", userID, err)
+			response["e2ee_private_key_encrypted"] = privateKeyEncrypted
+		} else {
+			response["e2ee_private_key"] = decryptedPrivateKey
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

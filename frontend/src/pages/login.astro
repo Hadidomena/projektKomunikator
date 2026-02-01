@@ -123,7 +123,6 @@
 
         if (response.ok) {
           if (data.requires_totp) {
-            // Need TOTP verification
             requiresTotp = true;
             tempToken = data.temp_token || '';
             totpSection.classList.add('active');
@@ -133,12 +132,19 @@
             loginBtn.disabled = true;
             loginBtn.textContent = '2FA Required';
             showMessage('Please enter your 2FA code', false);
-            // Focus on TOTP input
             (document.getElementById('totpCode') as HTMLInputElement).focus();
           } else {
-            // Login successful
             localStorage.setItem('jwt_token', data.token);
             localStorage.setItem('user_email', email);
+            localStorage.setItem('user_id', data.user_id);
+            
+            if (data.e2ee_public_key) {
+              localStorage.setItem('e2ee_public_key', data.e2ee_public_key);
+            }
+            if (data.e2ee_private_key) {
+              sessionStorage.setItem('e2ee_private_key', data.e2ee_private_key);
+            }
+            
             showMessage('Login successful! Redirecting...', false);
             setTimeout(() => window.location.href = '/dashboard', 1000);
           }
@@ -184,6 +190,15 @@
         if (response.ok) {
           localStorage.setItem('jwt_token', data.token);
           localStorage.setItem('user_email', email);
+          localStorage.setItem('user_id', data.user_id);
+          
+          if (data.e2ee_public_key) {
+            localStorage.setItem('e2ee_public_key', data.e2ee_public_key);
+          }
+          if (data.e2ee_private_key) {
+            sessionStorage.setItem('e2ee_private_key', data.e2ee_private_key);
+          }
+          
           showMessage('2FA verification successful! Redirecting...', false);
           setTimeout(() => window.location.href = '/dashboard', 1000);
         } else {

@@ -178,9 +178,14 @@ func DeriveKeyFromPassword(password string, userID int) ([]byte, error) {
 		return nil, fmt.Errorf("password cannot be empty")
 	}
 
+	if appPepper == "" {
+		return nil, fmt.Errorf("pepper not initialized - call SetPepper first")
+	}
+
+	passwordWithPepper := password + appPepper
 	salt := []byte(fmt.Sprintf("projektKomunikator-user-%d-key-v1", userID))
 	info := []byte("user-sensitive-data-encryption")
-	hkdfReader := hkdf.New(sha256.New, []byte(password), salt, info)
+	hkdfReader := hkdf.New(sha256.New, []byte(passwordWithPepper), salt, info)
 
 	key := make([]byte, 32)
 	if _, err := io.ReadFull(hkdfReader, key); err != nil {

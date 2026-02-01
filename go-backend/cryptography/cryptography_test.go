@@ -123,6 +123,8 @@ func TestGenerateE2EEKeys(t *testing.T) {
 }
 
 func TestDeriveKeyFromPassword(t *testing.T) {
+	SetPepper("test-pepper-for-testing-purposes-only")
+
 	key1, err := DeriveKeyFromPassword("testPassword123", 1)
 	if err != nil {
 		t.Fatalf("Failed to derive key: %v", err)
@@ -179,6 +181,8 @@ func TestDeriveKeyFromPassword(t *testing.T) {
 }
 
 func TestEncryptDecryptForUser(t *testing.T) {
+	SetPepper("test-pepper-for-testing-purposes-only")
+
 	err := InitializeEncryptionKey("test-master-secret-for-testing-purposes")
 	if err != nil {
 		t.Fatalf("Failed to initialize encryption key: %v", err)

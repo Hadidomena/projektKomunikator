@@ -55,54 +55,7 @@ func TestGenerateDeviceFingerprint(t *testing.T) {
 	}
 }
 
-func TestComputeSharedSecret(t *testing.T) {
-	// Generate two key pairs
-	keys1, err := GenerateDeviceKeys(1, "Device1")
-	if err != nil {
-		t.Fatalf("Failed to generate keys for device 1: %v", err)
-	}
-
-	keys2, err := GenerateDeviceKeys(2, "Device2")
-	if err != nil {
-		t.Fatalf("Failed to generate keys for device 2: %v", err)
-	}
-
-	// Compute shared secret from device 1's perspective
-	secret1, err := ComputeSharedSecret(keys1.PrivateKey, keys2.PublicKey)
-	if err != nil {
-		t.Fatalf("Failed to compute shared secret from device 1: %v", err)
-	}
-
-	// Compute shared secret from device 2's perspective
-	secret2, err := ComputeSharedSecret(keys2.PrivateKey, keys1.PublicKey)
-	if err != nil {
-		t.Fatalf("Failed to compute shared secret from device 2: %v", err)
-	}
-
-	// Both shared secrets should be identical
-	if len(secret1) != len(secret2) {
-		t.Errorf("Shared secret lengths differ: %d vs %d", len(secret1), len(secret2))
-	}
-
-	for i := range secret1 {
-		if secret1[i] != secret2[i] {
-			t.Error("Shared secrets do not match")
-			break
-		}
-	}
-
-	// Shared secret should be 32 bytes (X25519 output)
-	if len(secret1) != 32 {
-		t.Errorf("Expected shared secret length 32, got %d", len(secret1))
-	}
-}
-
-func TestComputeSharedSecret_InvalidKeys(t *testing.T) {
-	_, err := ComputeSharedSecret("invalid_private_key", "invalid_public_key")
-	if err == nil {
-		t.Error("Expected error when computing shared secret with invalid keys")
-	}
-}
+// NOTE: ComputeSharedSecret was removed - E2EE encryption/decryption is now done client-side
 
 func TestDeviceKeyPairStructure(t *testing.T) {
 	keys := &DeviceKeyPair{

@@ -121,20 +121,6 @@ type CSRFTokenResponse struct {
 	Token string `json:"csrf_token"`
 }
 
-type RatchetState struct {
-	ID                   int    `json:"id,omitempty"`
-	UserID               int    `json:"user_id,omitempty"`
-	PeerUserID           int    `json:"peer_user_id"`
-	RootKey              string `json:"root_key"`
-	SendingChainKey      string `json:"sending_chain_key"`
-	ReceivingChainKey    string `json:"receiving_chain_key"`
-	SendingChainLength   int    `json:"sending_chain_length"`
-	ReceivingChainLength int    `json:"receiving_chain_length"`
-	PreviousChainLength  int    `json:"previous_chain_length"`
-	DHPublicKey          string `json:"dh_public_key"`
-	DHPeerPublicKey      string `json:"dh_peer_public_key"`
-}
-
 var db *sql.DB
 var csrfStore *csrf.TokenStore
 var loginTracker *validation.LoginAttemptTracker
@@ -219,8 +205,6 @@ func main() {
 	mux.HandleFunc("/api/messages/get", authMiddleware(getMessageHandler))
 	mux.HandleFunc("/api/e2ee/keys", authMiddleware(getE2EEKeysHandler))
 	mux.HandleFunc("/api/user/public-key", authMiddleware(getUserPublicKeyHandler))
-	mux.HandleFunc("/api/ratchet/state", authMiddleware(getRatchetStateHandler))
-	mux.HandleFunc("/api/ratchet/update", authMiddleware(updateRatchetStateHandler))
 	mux.HandleFunc("/api/password-reset/request", handlers.PasswordResetRequestHandler)
 	mux.HandleFunc("/api/password-reset/verify", handlers.PasswordResetVerifyHandler)
 	mux.HandleFunc("/api/login-history", authMiddleware(loginHistoryHandler))
@@ -931,168 +915,6 @@ func csrfTokenHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(CSRFTokenResponse{Token: token})
 }
 
-// getRatchetStateHandler retrieves or initializes ratchet state between two users
-func getRatchetStateHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	userID, _, err := getUserFromContext(r)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
-		return
-	}
-
-	peerEmail := r.URL.Query().Get("peer_email")
-	if peerEmail == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "peer_email is required"})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	// Get peer user ID
-	var peerUserID int
-	err = db.QueryRowContext(ctx, "SELECT id FROM Users WHERE email = $1", strings.ToLower(peerEmail)).Scan(&peerUserID)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Peer user not found"})
-		return
-	}
-
-	// Try to get existing ratchet state
-	var state RatchetState
-	err = db.QueryRowContext(ctx, `
-		SELECT id, user_id, peer_user_id, root_key, sending_chain_key, receiving_chain_key,
-		       sending_chain_length, receiving_chain_length, previous_chain_length,
-		       dh_public_key, COALESCE(dh_peer_public_key, '')
-		FROM RatchetStates
-		WHERE user_id = $1 AND peer_user_id = $2
-	`, userID, peerUserID).Scan(
-		&state.ID, &state.UserID, &state.PeerUserID, &state.RootKey,
-		&state.SendingChainKey, &state.ReceivingChainKey,
-		&state.SendingChainLength, &state.ReceivingChainLength, &state.PreviousChainLength,
-		&state.DHPublicKey, &state.DHPeerPublicKey,
-	)
-
-	if err == sql.ErrNoRows {
-		// No state exists yet - client needs to initialize
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"message": "No ratchet state exists - initialize on first message",
-			"exists":  false,
-		})
-		return
-	} else if err != nil {
-		log.Printf("Failed to get ratchet state: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve ratchet state"})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(state)
-}
-
-// updateRatchetStateHandler updates ratchet state after sending/receiving messages
-func updateRatchetStateHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		http.Error(w, "Only PUT method is allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	userID, _, err := getUserFromContext(r)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
-		return
-	}
-
-	var state RatchetState
-	if err := json.NewDecoder(r.Body).Decode(&state); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
-		return
-	}
-
-	// Ensure user can only update their own state
-	state.UserID = userID
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	// Check if state exists
-	var existingID int
-	err = db.QueryRowContext(ctx, "SELECT id FROM RatchetStates WHERE user_id = $1 AND peer_user_id = $2",
-		state.UserID, state.PeerUserID).Scan(&existingID)
-
-	if err == sql.ErrNoRows {
-		// Insert new state
-		err = db.QueryRowContext(ctx, `
-			INSERT INTO RatchetStates (user_id, peer_user_id, root_key, sending_chain_key, receiving_chain_key,
-			                          sending_chain_length, receiving_chain_length, previous_chain_length,
-			                          dh_public_key, dh_peer_public_key)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-			RETURNING id
-		`, state.UserID, state.PeerUserID, state.RootKey, state.SendingChainKey, state.ReceivingChainKey,
-			state.SendingChainLength, state.ReceivingChainLength, state.PreviousChainLength,
-			state.DHPublicKey, state.DHPeerPublicKey).Scan(&state.ID)
-
-		if err != nil {
-			log.Printf("Failed to insert ratchet state: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to create ratchet state"})
-			return
-		}
-	} else if err != nil {
-		log.Printf("Failed to check ratchet state: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to update ratchet state"})
-		return
-	} else {
-		// Update existing state
-		_, err = db.ExecContext(ctx, `
-			UPDATE RatchetStates
-			SET root_key = $1, sending_chain_key = $2, receiving_chain_key = $3,
-			    sending_chain_length = $4, receiving_chain_length = $5, previous_chain_length = $6,
-			    dh_public_key = $7, dh_peer_public_key = $8, updated_at = CURRENT_TIMESTAMP
-			WHERE user_id = $9 AND peer_user_id = $10
-		`, state.RootKey, state.SendingChainKey, state.ReceivingChainKey,
-			state.SendingChainLength, state.ReceivingChainLength, state.PreviousChainLength,
-			state.DHPublicKey, state.DHPeerPublicKey, state.UserID, state.PeerUserID)
-
-		if err != nil {
-			log.Printf("Failed to update ratchet state: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to update ratchet state"})
-			return
-		}
-		state.ID = existingID
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message": "Ratchet state updated successfully",
-		"id":      state.ID,
-	})
-}
-
 // totpStatusHandler returns the 2FA status for a user
 func totpStatusHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -1472,7 +1294,13 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 	// Include E2EE keys if they exist
 	if publicKey != "" && privateKeyEncrypted != "" {
 		response["e2ee_public_key"] = publicKey
-		response["e2ee_private_key_encrypted"] = privateKeyEncrypted
+		decryptedPrivateKey, err := cryptography.DecryptForUser(privateKeyEncrypted, req.Password, userID)
+		if err != nil {
+			log.Printf("Warning: Failed to decrypt E2EE private key for user %d during 2FA: %v", userID, err)
+			response["e2ee_private_key_encrypted"] = privateKeyEncrypted
+		} else {
+			response["e2ee_private_key"] = decryptedPrivateKey
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
