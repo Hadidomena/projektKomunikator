@@ -109,14 +109,3 @@ func GetLoginHistory(db *sql.DB, userID int, limit int) ([]LoginAttempt, error) 
 
 	return history, nil
 }
-
-func GetRecentLoginCount(db *sql.DB, userID int, since time.Time) (int, error) {
-	query := `
-		SELECT COUNT(*) FROM LoginHistory 
-		WHERE user_id = $1 AND login_time > $2
-	`
-
-	var count int
-	err := db.QueryRow(query, userID, since).Scan(&count)
-	return count, err
-}

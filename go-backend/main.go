@@ -23,19 +23,6 @@ import (
 	_ "github.com/lib/pq"
 )
 
-type RegistrationRequest struct {
-	Username      string `json:"username"`
-	Email         string `json:"email"`
-	Password      string `json:"password"`
-	Website       string `json:"website,omitempty"`
-	E2EEPublicKey string `json:"e2ee_public_key,omitempty"`
-}
-
-type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
 type SendMessageRequest struct {
 	ReceiverEmail string       `json:"receiver_email"`
 	Content       string       `json:"content"`
@@ -64,10 +51,6 @@ type MessageResponse struct {
 	ReceiverPublicKey string       `json:"receiver_public_key,omitempty"`
 }
 
-type ErrorResponse struct {
-	Message string `json:"message"`
-}
-
 // Attachment represents a file attachment in a message
 type Attachment struct {
 	Filename    string `json:"filename"`
@@ -76,29 +59,9 @@ type Attachment struct {
 	Data        string `json:"data"`
 }
 
-// MessageWithAttachments represents the complete message structure
-type MessageWithAttachments struct {
-	Content     string       `json:"content"`
-	Attachments []Attachment `json:"attachments,omitempty"`
-}
-
-type PasswordResetRequest struct {
-	Email string `json:"email"`
-}
-
-type PasswordResetVerify struct {
-	Token       string `json:"token"`
-	NewPassword string `json:"new_password"`
-}
-
 type TOTPSetupRequest struct {
 	CSRFToken string `json:"csrf_token"`
 	Password  string `json:"password"`
-}
-
-type TOTPSetupResponse struct {
-	Secret string `json:"secret"`
-	QRCode string `json:"qr_code_url"`
 }
 
 type TOTPVerifyRequest struct {
@@ -120,10 +83,6 @@ type CSRFTokenResponse struct {
 var db *sql.DB
 var csrfStore *csrf.TokenStore
 var loginTracker *validation.LoginAttemptTracker
-
-var (
-	appPepper string
-)
 
 func init() {
 	appPepper := os.Getenv("PEPPER")
@@ -234,7 +193,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if authHeader == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Authorization header required"})
+			json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Authorization header required"})
 			return
 		}
 
@@ -242,7 +201,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if len(parts) != 2 || parts[0] != "Bearer" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid authorization header format"})
+			json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid authorization header format"})
 			return
 		}
 
@@ -251,7 +210,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid or expired token"})
+			json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid or expired token"})
 			return
 		}
 
@@ -298,7 +257,7 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Authentication required"})
 		return
 	}
 
@@ -306,28 +265,28 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
 		return
 	}
 
 	if !csrfStore.ValidateToken(senderEmail, req.CSRFToken) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid CSRF token"})
 		return
 	}
 
 	if req.ReceiverEmail == "" || req.Content == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
 		return
 	}
 
 	if !validation.ValidateEmail(req.ReceiverEmail) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
 		return
 	}
 
@@ -335,7 +294,7 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if len(req.Content) > 25*1024*1024 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message too long (max 15MB attachments)"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Message too long (max 15MB attachments)"})
 		return
 	}
 
@@ -356,13 +315,13 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		if err == sql.ErrNoRows {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Receiver not found"})
+			json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Receiver not found"})
 			return
 		}
 		log.Printf("Failed to get receiver: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to send message"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to send message"})
 		return
 	}
 
@@ -370,7 +329,7 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if receiverPublicKey == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Receiver doesn't have E2EE keys - they need to re-register or update their account"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Receiver doesn't have E2EE keys - they need to re-register or update their account"})
 		return
 	}
 
@@ -382,7 +341,7 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil || senderPublicKey == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "You don't have E2EE keys - please re-register or update your account"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "You don't have E2EE keys - please re-register or update your account"})
 		return
 	}
 
@@ -398,7 +357,7 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to insert message: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to send message"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to send message"})
 		return
 	}
 
@@ -422,7 +381,7 @@ func getInboxHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Authentication required"})
 		return
 	}
 
@@ -441,7 +400,7 @@ func getInboxHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to get messages: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve messages"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to retrieve messages"})
 		return
 	}
 	defer rows.Close()
@@ -481,7 +440,7 @@ func getSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Authentication required"})
 		return
 	}
 
@@ -500,7 +459,7 @@ func getSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to get sent messages: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve messages"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to retrieve messages"})
 		return
 	}
 	defer rows.Close()
@@ -538,7 +497,7 @@ func markMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Authentication required"})
 		return
 	}
 
@@ -548,14 +507,14 @@ func markMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
 		return
 	}
 
 	if req.MessageID <= 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
 		return
 	}
 
@@ -569,7 +528,7 @@ func markMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to mark message as read: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to mark message as read"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to mark message as read"})
 		return
 	}
 
@@ -577,7 +536,7 @@ func markMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 	if rowsAffected == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message not found or already read"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Message not found or already read"})
 		return
 	}
 
@@ -599,7 +558,7 @@ func getMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Authentication required"})
 		return
 	}
 
@@ -607,7 +566,7 @@ func getMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if messageIDStr == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message ID required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Message ID required"})
 		return
 	}
 
@@ -615,7 +574,7 @@ func getMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil || messageID <= 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid message ID"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid message ID"})
 		return
 	}
 
@@ -651,13 +610,13 @@ func getMessageHandler(w http.ResponseWriter, r *http.Request) {
 		if err == sql.ErrNoRows {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Message not found"})
+			json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Message not found"})
 			return
 		}
 		log.Printf("Failed to get message: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve message"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to retrieve message"})
 		return
 	}
 
@@ -668,7 +627,7 @@ func getMessageHandler(w http.ResponseWriter, r *http.Request) {
 		msg.Signature = signature.String
 	}
 
-	if !(encryptedKey.Valid && encryptedKey.String == "e2ee") {
+	if !(encryptedKey.Valid && encryptedKey.String == "client-e2ee") {
 		fmt.Printf("Warning: Message %d is not marked as encrypted\n", msg.ID)
 	}
 
@@ -687,7 +646,7 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Authentication required"})
 		return
 	}
 
@@ -697,14 +656,14 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
 		return
 	}
 
 	if req.MessageID <= 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
 		return
 	}
 
@@ -721,7 +680,7 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to delete message: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to delete message"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to delete message"})
 		return
 	}
 
@@ -729,7 +688,7 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if rowsAffected == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message not found"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Message not found"})
 		return
 	}
 
@@ -750,7 +709,7 @@ func getE2EEKeysHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Authentication required"})
 		return
 	}
 
@@ -765,14 +724,14 @@ func getE2EEKeysHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to get E2EE keys for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve E2EE keys"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to retrieve E2EE keys"})
 		return
 	}
 
 	if publicKey == "" || privateKeyEncrypted == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "E2EE keys not found - please re-register your account"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "E2EE keys not found - please re-register your account"})
 		return
 	}
 
@@ -795,7 +754,7 @@ func getUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Authentication required"})
 		return
 	}
 
@@ -803,14 +762,14 @@ func getUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	if email == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Email parameter is required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Email parameter is required"})
 		return
 	}
 
 	if !validation.ValidateEmail(email) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid email format"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid email format"})
 		return
 	}
 
@@ -825,20 +784,20 @@ func getUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 		if err == sql.ErrNoRows {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "User not found"})
+			json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "User not found"})
 			return
 		}
 		log.Printf("Failed to get public key for user %s: %v", email, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve public key"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to retrieve public key"})
 		return
 	}
 
 	if publicKey == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "User does not have E2EE keys configured"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "User does not have E2EE keys configured"})
 		return
 	}
 
@@ -860,7 +819,7 @@ func updateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Authentication required"})
 		return
 	}
 
@@ -871,14 +830,14 @@ func updateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid request"})
 		return
 	}
 
 	if req.E2EEPublicKey == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Public key is required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Public key is required"})
 		return
 	}
 
@@ -892,7 +851,7 @@ func updateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to update public key for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to update public key"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to update public key"})
 		return
 	}
 
@@ -909,7 +868,7 @@ func csrfTokenHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Method not allowed"})
 		return
 	}
 
@@ -917,7 +876,7 @@ func csrfTokenHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Unauthorized"})
 		return
 	}
 
@@ -926,7 +885,7 @@ func csrfTokenHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to create CSRF token for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to generate CSRF token"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to generate CSRF token"})
 		return
 	}
 
@@ -940,7 +899,7 @@ func totpStatusHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Method not allowed"})
 		return
 	}
 
@@ -948,7 +907,7 @@ func totpStatusHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Unauthorized"})
 		return
 	}
 
@@ -959,7 +918,7 @@ func totpStatusHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to get 2FA status for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to get 2FA status"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to get 2FA status"})
 		return
 	}
 
@@ -979,7 +938,7 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Method not allowed"})
 		return
 	}
 
@@ -987,7 +946,7 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Unauthorized"})
 		return
 	}
 
@@ -995,14 +954,14 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid request body"})
 		return
 	}
 
 	if req.Password == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Password is required to secure the 2FA secret"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Password is required to secure the 2FA secret"})
 		return
 	}
 
@@ -1011,7 +970,7 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to generate TOTP secret for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to generate 2FA secret"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to generate 2FA secret"})
 		return
 	}
 
@@ -1020,7 +979,7 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to encrypt TOTP secret for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to setup 2FA"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to setup 2FA"})
 		return
 	}
 
@@ -1029,7 +988,7 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to store TOTP secret for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to setup 2FA"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to setup 2FA"})
 		return
 	}
 
@@ -1038,7 +997,7 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to encrypt TOTP secret for transmission to user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to setup 2FA"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to setup 2FA"})
 		return
 	}
 
@@ -1058,7 +1017,7 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Method not allowed"})
 		return
 	}
 
@@ -1066,7 +1025,7 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Unauthorized"})
 		return
 	}
 
@@ -1074,14 +1033,14 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid request body"})
 		return
 	}
 
 	if !csrfStore.ValidateToken(userEmail, req.CSRFToken) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid CSRF token"})
 		return
 	}
 
@@ -1091,14 +1050,14 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to retrieve TOTP secret for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "2FA not setup"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "2FA not setup"})
 		return
 	}
 
 	if encryptedTotpSecret == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Please setup 2FA first"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Please setup 2FA first"})
 		return
 	}
 
@@ -1108,7 +1067,7 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to decrypt TOTP secret for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to verify 2FA"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to verify 2FA"})
 		return
 	}
 
@@ -1121,7 +1080,7 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 	if verificationCode == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Verification code is required"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Verification code is required"})
 		return
 	}
 
@@ -1130,14 +1089,14 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to validate TOTP for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Validation failed"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Validation failed"})
 		return
 	}
 
 	if !valid {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid 2FA code"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid 2FA code"})
 		return
 	}
 
@@ -1146,7 +1105,7 @@ func totpVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to enable 2FA for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to enable 2FA"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to enable 2FA"})
 		return
 	}
 
@@ -1160,7 +1119,7 @@ func totpDisableHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Method not allowed"})
 		return
 	}
 
@@ -1168,7 +1127,7 @@ func totpDisableHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Unauthorized"})
 		return
 	}
 
@@ -1176,14 +1135,14 @@ func totpDisableHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid request body"})
 		return
 	}
 
 	if !csrfStore.ValidateToken(userEmail, req.CSRFToken) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid CSRF token"})
 		return
 	}
 
@@ -1192,7 +1151,7 @@ func totpDisableHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to disable 2FA for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to disable 2FA"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to disable 2FA"})
 		return
 	}
 
@@ -1206,7 +1165,7 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Method not allowed"})
 		return
 	}
 
@@ -1214,14 +1173,14 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid request body"})
 		return
 	}
 
 	if !validation.ValidateEmail(req.Email) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid email format"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid email format"})
 		return
 	}
 
@@ -1237,7 +1196,7 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid credentials"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid credentials"})
 		return
 	}
 
@@ -1246,14 +1205,14 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil || !passwordValid {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid credentials"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid credentials"})
 		return
 	}
 
 	if !totpEnabled || encryptedTotpSecret == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "2FA not enabled"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "2FA not enabled"})
 		return
 	}
 
@@ -1263,7 +1222,7 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to decrypt TOTP secret for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Validation failed"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Validation failed"})
 		return
 	}
 
@@ -1272,14 +1231,14 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to validate TOTP for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Validation failed"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Validation failed"})
 		return
 	}
 
 	if !valid {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid 2FA code"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Invalid 2FA code"})
 		return
 	}
 
@@ -1289,7 +1248,7 @@ func totpValidateHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to generate JWT token: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to complete login"})
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Failed to complete login"})
 		return
 	}
 

@@ -8,10 +8,8 @@ import (
 )
 
 const (
-	TokenLength      = 32
-	TokenExpiration  = 1 * time.Hour
-	MaxResetAttempts = 3
-	ResetCooldown    = 24 * time.Hour
+	TokenLength     = 32
+	TokenExpiration = 1 * time.Hour
 )
 
 type ResetToken struct {

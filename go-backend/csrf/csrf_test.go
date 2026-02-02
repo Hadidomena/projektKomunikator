@@ -132,43 +132,6 @@ func TestValidateToken_ExpiredToken(t *testing.T) {
 	}
 }
 
-func TestRefreshToken(t *testing.T) {
-	store := NewTokenStore()
-	userID := "user123"
-
-	_, err := store.CreateToken(userID, 1*time.Second)
-	if err != nil {
-		t.Fatalf("Failed to create token: %v", err)
-	}
-
-	// Refresh token with longer expiration
-	err = store.RefreshToken(userID, 1*time.Hour)
-	if err != nil {
-		t.Fatalf("Failed to refresh token: %v", err)
-	}
-
-	// Token should still be valid
-	token, exists := store.GetToken(userID)
-	if !exists {
-		t.Error("Refreshed token should still exist")
-	}
-
-	if token == "" {
-		t.Error("Refreshed token should not be empty")
-	}
-}
-
-func TestRefreshToken_NonExistent(t *testing.T) {
-	store := NewTokenStore()
-	userID := "user123"
-
-	// Try to refresh non-existent token
-	err := store.RefreshToken(userID, DefaultExpiration)
-	if err == nil {
-		t.Error("Refreshing non-existent token should return error")
-	}
-}
-
 func TestDeleteToken(t *testing.T) {
 	store := NewTokenStore()
 	userID := "user123"

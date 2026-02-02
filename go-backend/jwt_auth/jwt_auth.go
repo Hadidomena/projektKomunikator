@@ -88,26 +88,7 @@ func ValidateToken(tokenString string) (*Claims, error) {
 	return claims, nil
 }
 
-// RefreshToken generates a new token if the current one is still valid but close to expiration
-func RefreshToken(tokenString string) (string, error) {
-	claims, err := ValidateToken(tokenString)
-	if err != nil {
-		return "", err
-	}
-
-	if time.Until(claims.ExpiresAt.Time) > time.Hour {
-		return "", errors.New("token does not need refresh yet")
-	}
-
-	return GenerateToken(claims.UserID, claims.Email)
-}
-
 // GetTokenExpiration returns the token expiration duration
 func GetTokenExpiration() time.Duration {
 	return tokenExpiration
-}
-
-// SetTokenExpiration sets the token expiration duration (for testing purposes)
-func SetTokenExpiration(duration time.Duration) {
-	tokenExpiration = duration
 }

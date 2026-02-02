@@ -16,11 +16,6 @@ func TestGenerateSecret(t *testing.T) {
 		t.Error("Generated secret should not be empty")
 	}
 
-	// Secret should be base32 encoded
-	if !ValidateSecret(secret) {
-		t.Error("Generated secret should be valid base32")
-	}
-
 	// Check length
 	if len(secret) < 20 {
 		t.Errorf("Secret length should be at least 20 characters, got %d", len(secret))
@@ -211,23 +206,6 @@ func TestGenerateQRCodeURL(t *testing.T) {
 
 	if !strings.Contains(url, secret) {
 		t.Error("QR code URL should contain secret")
-	}
-}
-
-func TestValidateSecret(t *testing.T) {
-	validSecret := "JBSWY3DPEHPK3PXP"
-	if !ValidateSecret(validSecret) {
-		t.Error("Valid secret should pass validation")
-	}
-
-	invalidSecret := "INVALID!@#$%"
-	if ValidateSecret(invalidSecret) {
-		t.Error("Invalid secret should fail validation")
-	}
-
-	emptySecret := ""
-	if ValidateSecret(emptySecret) {
-		t.Error("Empty secret should fail validation")
 	}
 }
 

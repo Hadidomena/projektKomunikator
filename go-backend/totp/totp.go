@@ -139,17 +139,3 @@ func GenerateQRCodeURL(accountName, issuer, secret string) string {
 		issuer,
 	)
 }
-
-// ValidateSecret checks if a secret is valid base32
-func ValidateSecret(secret string) bool {
-	if secret == "" {
-		return false
-	}
-	secret = strings.ToUpper(secret)
-	if m := len(secret) % 8; m != 0 {
-		secret += strings.Repeat("=", 8-m)
-	}
-
-	_, err := base32.StdEncoding.DecodeString(secret)
-	return err == nil
-}

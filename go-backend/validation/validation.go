@@ -130,22 +130,6 @@ func (t *LoginAttemptTracker) ResetAttempts(email string) {
 	}
 }
 
-// GetAttemptCount returns the current number of failed attempts for an account
-func (t *LoginAttemptTracker) GetAttemptCount(email string) int {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	if t.accounts[email] == nil {
-		return 0
-	}
-
-	status := t.accounts[email]
-	status.mu.RLock()
-	defer status.mu.RUnlock()
-
-	return len(status.FailedAttempts)
-}
-
 // ValidateEmail checks if the email format is valid
 func ValidateEmail(email string) bool {
 	if email == "" {
@@ -182,23 +166,5 @@ func GetSanitizedError(errorType string) string {
 		return "Invalid input provided"
 	default:
 		return "An error occurred. Please try again"
-	}
-}
-
-// ValidationError represents a validation error with limited information
-type ValidationError struct {
-	Type    string
-	Message string
-}
-
-func (e *ValidationError) Error() string {
-	return e.Message
-}
-
-// NewValidationError creates a new validation error with sanitized message
-func NewValidationError(errorType string) *ValidationError {
-	return &ValidationError{
-		Type:    errorType,
-		Message: GetSanitizedError(errorType),
 	}
 }

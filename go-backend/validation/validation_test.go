@@ -133,9 +133,6 @@ func TestLoginAttemptTracker_FirstAttempt(t *testing.T) {
 	if lockDuration != 1*time.Minute {
 		t.Errorf("Expected lock duration of 1 minute, got %v", lockDuration)
 	}
-	if tracker.GetAttemptCount(email) != 1 {
-		t.Errorf("Expected 1 attempt, got %d", tracker.GetAttemptCount(email))
-	}
 }
 
 // TestLoginAttemptTracker_ThreeAttempts tests three failed login attempts
@@ -165,9 +162,6 @@ func TestLoginAttemptTracker_ThreeAttempts(t *testing.T) {
 	if lockDuration != 5*time.Minute {
 		t.Errorf("Expected lock duration of 5 minutes, got %v", lockDuration)
 	}
-	if tracker.GetAttemptCount(email) != 3 {
-		t.Errorf("Expected 3 attempts, got %d", tracker.GetAttemptCount(email))
-	}
 }
 
 // TestLoginAttemptTracker_FiveAttempts tests five failed login attempts leading to permanent block
@@ -195,9 +189,6 @@ func TestLoginAttemptTracker_FiveAttempts(t *testing.T) {
 	}
 	if lockDuration != 0 {
 		t.Error("Lock duration should be 0 for permanent block")
-	}
-	if tracker.GetAttemptCount(email) != 5 {
-		t.Errorf("Expected 5 attempts, got %d", tracker.GetAttemptCount(email))
 	}
 }
 
@@ -252,19 +243,17 @@ func TestLoginAttemptTracker_ResetAttempts(t *testing.T) {
 	tracker.RecordFailedAttempt(email, ip)
 	tracker.RecordFailedAttempt(email, ip)
 
-	if tracker.GetAttemptCount(email) != 2 {
-		t.Errorf("Expected 2 attempts, got %d", tracker.GetAttemptCount(email))
+	// Verify account is locked
+	isLocked, _, _ := tracker.CheckAccountStatus(email)
+	if !isLocked {
+		t.Error("Account should be locked after failed attempts")
 	}
 
 	// Reset attempts
 	tracker.ResetAttempts(email)
 
-	if tracker.GetAttemptCount(email) != 0 {
-		t.Errorf("Expected 0 attempts after reset, got %d", tracker.GetAttemptCount(email))
-	}
-
 	// Check status should show unlocked
-	isLocked, _, _ := tracker.CheckAccountStatus(email)
+	isLocked, _, _ = tracker.CheckAccountStatus(email)
 	if isLocked {
 		t.Error("Account should not be locked after reset")
 	}
@@ -283,7 +272,6 @@ func TestLoginAttemptTracker_ConcurrentAccess(t *testing.T) {
 			ip := fmt.Sprintf("192.168.1.%d", id)
 			tracker.RecordFailedAttempt(email, ip)
 			tracker.CheckAccountStatus(email)
-			tracker.GetAttemptCount(email)
 			done <- true
 		}(i)
 	}
@@ -293,10 +281,10 @@ func TestLoginAttemptTracker_ConcurrentAccess(t *testing.T) {
 		<-done
 	}
 
-	// Just verify no panic occurred and we can still query the tracker
-	count := tracker.GetAttemptCount(email)
-	if count < 0 || count > 10 {
-		t.Errorf("Unexpected attempt count: %d", count)
+	// Just verify no panic occurred and account is in some locked/blocked state
+	isLocked, _, _ := tracker.CheckAccountStatus(email)
+	if !isLocked {
+		t.Error("Account should be locked after concurrent attempts")
 	}
 }
 
@@ -312,17 +300,7 @@ func TestLoginAttemptTracker_MultipleAccounts(t *testing.T) {
 	tracker.RecordFailedAttempt(email2, ip)
 	tracker.RecordFailedAttempt(email2, ip)
 
-	count1 := tracker.GetAttemptCount(email1)
-	count2 := tracker.GetAttemptCount(email2)
-
-	if count1 != 1 {
-		t.Errorf("Expected 1 attempt for email1, got %d", count1)
-	}
-	if count2 != 2 {
-		t.Errorf("Expected 2 attempts for email2, got %d", count2)
-	}
-
-	// Check status for each account
+	// Check status for each account - both should be locked
 	isLocked1, _, _ := tracker.CheckAccountStatus(email1)
 	isLocked2, _, _ := tracker.CheckAccountStatus(email2)
 
@@ -376,61 +354,6 @@ func TestGetSanitizedError(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestNewValidationError tests validation error creation
-func TestNewValidationError(t *testing.T) {
-	tests := []string{
-		"login_failed",
-		"registration_failed",
-		"account_locked",
-		"account_blocked",
-		"validation_failed",
-	}
-
-	for _, errorType := range tests {
-		t.Run(errorType, func(t *testing.T) {
-			err := NewValidationError(errorType)
-
-			if err.Type != errorType {
-				t.Errorf("Expected type %s, got %s", errorType, err.Type)
-			}
-
-			if err.Message == "" {
-				t.Error("Error message should not be empty")
-			}
-
-			if err.Error() != err.Message {
-				t.Error("Error() should return the message")
-			}
-		})
-	}
-}
-
-// TestLoginAttemptTracker_ExpiredAttempts tests that old attempts are cleaned up
-func TestLoginAttemptTracker_ExpiredAttempts(t *testing.T) {
-	tracker := NewLoginAttemptTracker()
-	email := "test@example.com"
-	ip := "192.168.1.1"
-
-	// Record an attempt
-	tracker.RecordFailedAttempt(email, ip)
-
-	// Manually set the attempt timestamp to be old (more than 10 minutes ago)
-	if status := tracker.accounts[email]; status != nil {
-		status.mu.Lock()
-		status.FailedAttempts[0].Timestamp = time.Now().Add(-15 * time.Minute)
-		status.mu.Unlock()
-	}
-
-	// Record a new attempt, which should clean up the old one
-	tracker.RecordFailedAttempt(email, ip)
-
-	// Should only have 1 attempt now (the new one)
-	count := tracker.GetAttemptCount(email)
-	if count != 1 {
-		t.Errorf("Expected 1 attempt after cleanup, got %d", count)
 	}
 }
 

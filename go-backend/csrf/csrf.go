@@ -88,24 +88,6 @@ func (ts *TokenStore) ValidateToken(userID string, providedToken string) bool {
 	return subtle.ConstantTimeCompare([]byte(storedToken.Value), []byte(providedToken)) == 1
 }
 
-// RefreshToken refreshes the expiration time of an existing token
-func (ts *TokenStore) RefreshToken(userID string, expiration time.Duration) error {
-	if expiration == 0 {
-		expiration = DefaultExpiration
-	}
-
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-
-	token, exists := ts.tokens[userID]
-	if !exists {
-		return fmt.Errorf("no token found for user: %s", userID)
-	}
-
-	token.Expiration = time.Now().Add(expiration)
-	return nil
-}
-
 // DeleteToken removes a token from the store
 func (ts *TokenStore) DeleteToken(userID string) {
 	ts.mu.Lock()

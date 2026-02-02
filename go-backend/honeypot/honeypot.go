@@ -103,19 +103,3 @@ func GetTopAttackingIPs(db *sql.DB, limit int) ([]map[string]interface{}, error)
 
 	return results, nil
 }
-
-func IsIPBlocked(db *sql.DB, ipAddress string, threshold int, window time.Duration) (bool, error) {
-	query := `
-		SELECT COUNT(*) FROM HoneypotAttempts
-		WHERE ip_address = $1 AND attempt_time > $2 AND blocked = TRUE
-	`
-
-	since := time.Now().Add(-window)
-	var count int
-	err := db.QueryRow(query, ipAddress, since).Scan(&count)
-	if err != nil {
-		return false, err
-	}
-
-	return count >= threshold, nil
-}
