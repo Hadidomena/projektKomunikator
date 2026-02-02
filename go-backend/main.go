@@ -83,6 +83,7 @@ type CSRFTokenResponse struct {
 var db *sql.DB
 var csrfStore *csrf.TokenStore
 var loginTracker *validation.LoginAttemptTracker
+var e2eePepper string
 
 func init() {
 	appPepper := os.Getenv("PEPPER")
@@ -90,6 +91,12 @@ func init() {
 		log.Fatal("SECURITY ERROR: PEPPER environment variable not set")
 	}
 	cryptography.SetPepper(appPepper)
+
+	e2eePepper = os.Getenv("E2EE_PEPPER")
+	if e2eePepper == "" {
+		log.Fatal("SECURITY ERROR: E2EE_PEPPER environment variable not set")
+	}
+
 	encryptionSecret := os.Getenv("ENCRYPTION_SECRET")
 	if encryptionSecret == "" {
 		log.Fatal("SECURITY ERROR: ENCRYPTION_SECRET environment variable not set")
@@ -157,6 +164,7 @@ func main() {
 	mux.HandleFunc("/api/messages/sent", authMiddleware(getSentMessagesHandler))
 	mux.HandleFunc("/api/messages/get", authMiddleware(getMessageHandler))
 	mux.HandleFunc("/api/e2ee/keys", authMiddleware(getE2EEKeysHandler))
+	mux.HandleFunc("/api/e2ee/config", authMiddleware(e2eeConfigHandler))
 	mux.HandleFunc("/api/user/public-key", authMiddleware(getUserPublicKeyHandler))
 	mux.HandleFunc("/api/user/update-public-key", authMiddleware(updateUserPublicKeyHandler))
 	mux.HandleFunc("/api/password-reset/request", handlers.PasswordResetRequestHandler)
@@ -740,6 +748,28 @@ func getE2EEKeysHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(E2EEKeysResponse{
 		PublicKey:           publicKey,
 		PrivateKeyEncrypted: privateKeyEncrypted,
+	})
+}
+
+// e2eeConfigHandler returns E2EE configuration including the pepper for key derivation
+func e2eeConfigHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	_, _, err := getUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(handlers.ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"pepper": e2eePepper,
 	})
 }
 

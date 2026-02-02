@@ -245,6 +245,22 @@
     
     // ==================== E2EE CRYPTOGRAPHIC FUNCTIONS ====================
     
+    let e2eePepper: string = '';
+    
+    async function fetchE2EEConfig(): Promise<void> {
+      try {
+        const response = await fetch('/api/e2ee/config', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const config = await response.json();
+          e2eePepper = config.pepper || '';
+        }
+      } catch (error) {
+        console.error('Failed to fetch E2EE config:', error);
+      }
+    }
+    
     function base64ToArrayBuffer(base64: string): ArrayBuffer {
       const binaryString = atob(base64);
       const bytes = new Uint8Array(binaryString.length);
@@ -291,13 +307,14 @@
         ['deriveKey']
       );
       
+      const infoWithPepper = info + e2eePepper;
       const encoder = new TextEncoder();
       return crypto.subtle.deriveKey(
         {
           name: 'HKDF',
           hash: 'SHA-256',
           salt: new Uint8Array(saltBuffer),
-          info: encoder.encode(info)
+          info: encoder.encode(infoWithPepper)
         },
         baseKey,
         { name: 'AES-GCM', length: 256 },
@@ -398,6 +415,8 @@
     }
     
     async function initializeE2EE() {
+      await fetchE2EEConfig();
+      
       myPublicKey = localStorage.getItem('e2ee_public_key');
       const privateKeyB64 = sessionStorage.getItem('e2ee_private_key_pkcs8');
       
