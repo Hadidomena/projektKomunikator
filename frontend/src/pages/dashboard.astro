@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width" />
   <title>Dashboard - Communicator</title>
   <!-- Markdown rendering with sanitization -->
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -150,6 +150,9 @@
   </div>
 
   <script>
+    declare const marked: { parse: (text: string, options?: { async?: boolean }) => string | Promise<string> };
+    declare const DOMPurify: { sanitize: (html: string, config?: object) => string };
+
     const API_URL = '';
     let currentFiles: File[] = [];
     let currentTab = 'inbox';
@@ -160,48 +163,76 @@
     let myPrivateKey: CryptoKey | null = null;
     let e2eeReady = false;
 
-    // Declare external libraries (loaded from CDN)
-    declare const marked: { parse: (text: string) => string };
-    declare const DOMPurify: { sanitize: (html: string, config?: object) => string };
-
-    // Render Markdown content with sanitization (XSS protection)
     function renderMarkdown(content: string): string {
       try {
-        // Parse markdown to HTML
-        const rawHtml = marked.parse(content);
+        if (typeof marked === 'undefined') {
+          console.error('marked library not loaded');
+          return escapeHtml(content);
+        }
+        if (typeof DOMPurify === 'undefined') {
+          console.error('DOMPurify library not loaded');
+          return escapeHtml(content);
+        }
+        let rawHtml: string;
+        try {
+          rawHtml = marked.parse(content, { async: false }) as string;
+        } catch (parseError) {
+          console.error('Markdown parse error:', parseError);
+          return escapeHtml(content);
+        }
         
-        // Sanitize HTML to prevent XSS attacks
-        // Allow safe HTML tags and attributes only
         const cleanHtml = DOMPurify.sanitize(rawHtml, {
-          ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'b', 'i', 'u', 's', 'strike', 'del',
+          ALLOWED_TAGS: [
+            'p', 'br', 'strong', 'em', 'b', 'i', 'u', 's', 'strike', 'del',
             'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
             'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
             'a', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
-            'span', 'div', 'sup', 'sub'],
-          ALLOWED_ATTR: ['href', 'title', 'class', 'id', 'target', 'rel'],
-          // Force all links to open in new tab and add noopener for security
-          ADD_ATTR: ['target', 'rel'],
-          FORBID_TAGS: ['script', 'style', 'iframe', 'form', 'input', 'object', 'embed', 'svg', 'math'],
-          FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'style']
+            'sup', 'sub'
+          ],
+          ALLOWED_ATTR: ['href', 'title'],
+          FORBID_TAGS: [
+            'script', 'style', 'iframe', 'frame', 'frameset',
+            'form', 'input', 'button', 'select', 'textarea',
+            'object', 'embed', 'applet', 'link', 'meta', 'base',
+            'svg', 'math', 'template', 'noscript', 'canvas', 'audio', 'video'
+          ],
+          FORBID_ATTR: [
+            'onerror', 'onload', 'onclick', 'onmouseover', 'onmouseout',
+            'onmousedown', 'onmouseup', 'onfocus', 'onblur', 'onchange',
+            'onsubmit', 'onreset', 'onkeydown', 'onkeyup', 'onkeypress',
+            'style', 'class', 'id', 'name', 'action', 'formaction',
+            'src', 'srcdoc', 'data', 'dynsrc', 'lowsrc', 'background',
+            'poster', 'codebase', 'cite', 'xlink:href', 'xml:base'
+          ],
+          ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+          KEEP_CONTENT: false,
+          DATA_URI_TAGS: [],
+          USE_PROFILES: { html: true }
         });
         
-        // Add target="_blank" and rel="noopener noreferrer" to all links for security
-        return cleanHtml.replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ');
+        const secureHtml = cleanHtml.replace(
+          /<a\s+href="([^"]+)"([^>]*)>/gi,
+          (match, href, rest) => {
+            if (!/^(https?:|mailto:)/i.test(href)) {
+              return '<span>';
+            }
+            return `<a href="${href}" target="_blank" rel="noopener noreferrer nofollow"${rest}>`;
+          }
+        );
+        
+        return secureHtml;
       } catch (error) {
         console.error('Markdown rendering error:', error);
-        // Fallback to escaped plain text
         return escapeHtml(content);
       }
     }
     
-    // Escape HTML to prevent XSS (fallback)
     function escapeHtml(text: string): string {
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
     }
 
-    // Auth check
     const token = localStorage.getItem('jwt_token');
     const userEmail = localStorage.getItem('user_email');
     const userId = localStorage.getItem('user_id');
@@ -214,7 +245,6 @@
     
     // ==================== E2EE CRYPTOGRAPHIC FUNCTIONS ====================
     
-    // Convert base64 to ArrayBuffer
     function base64ToArrayBuffer(base64: string): ArrayBuffer {
       const binaryString = atob(base64);
       const bytes = new Uint8Array(binaryString.length);
@@ -224,7 +254,6 @@
       return bytes.buffer;
     }
     
-    // Convert ArrayBuffer to base64
     function arrayBufferToBase64(buffer: ArrayBuffer): string {
       const bytes = new Uint8Array(buffer);
       let binary = '';
@@ -234,22 +263,6 @@
       return btoa(binary);
     }
     
-    // Generate ephemeral X25519 key pair for Double Ratchet
-    async function generateEphemeralKeyPair(): Promise<CryptoKeyPair> {
-      return crypto.subtle.generateKey(
-        { name: 'X25519' },
-        true,
-        ['deriveBits']
-      ) as Promise<CryptoKeyPair>;
-    }
-    
-    // Export public key to base64
-    async function exportPublicKey(publicKey: CryptoKey): Promise<string> {
-      const exported = await crypto.subtle.exportKey('raw', publicKey);
-      return arrayBufferToBase64(exported);
-    }
-    
-    // Import public key from base64
     async function importPublicKey(publicKeyB64: string): Promise<CryptoKey> {
       const keyData = base64ToArrayBuffer(publicKeyB64);
       return crypto.subtle.importKey(
@@ -261,7 +274,6 @@
       );
     }
     
-    // Derive shared secret using X25519
     async function deriveSharedSecret(privateKey: CryptoKey, publicKey: CryptoKey): Promise<ArrayBuffer> {
       return crypto.subtle.deriveBits(
         { name: 'X25519', public: publicKey },
@@ -270,8 +282,7 @@
       );
     }
     
-    // Derive message key from shared secret using HKDF
-    async function deriveMessageKey(sharedSecret: ArrayBuffer, info: string): Promise<CryptoKey> {
+    async function deriveMessageKey(sharedSecret: ArrayBuffer, info: string, saltBuffer: ArrayBuffer): Promise<CryptoKey> {
       const baseKey = await crypto.subtle.importKey(
         'raw',
         sharedSecret,
@@ -285,7 +296,7 @@
         {
           name: 'HKDF',
           hash: 'SHA-256',
-          salt: new Uint8Array(32), // Zero salt for simplicity
+          salt: new Uint8Array(saltBuffer),
           info: encoder.encode(info)
         },
         baseKey,
@@ -295,7 +306,6 @@
       );
     }
     
-    // Encrypt message using AES-256-GCM
     async function encryptMessage(plaintext: string, key: CryptoKey): Promise<{ ciphertext: string, nonce: string }> {
       const encoder = new TextEncoder();
       const nonce = crypto.getRandomValues(new Uint8Array(12));
@@ -312,7 +322,6 @@
       };
     }
     
-    // Decrypt message using AES-256-GCM
     async function decryptMessage(ciphertextB64: string, nonceB64: string, key: CryptoKey): Promise<string> {
       const ciphertext = base64ToArrayBuffer(ciphertextB64);
       const nonce = base64ToArrayBuffer(nonceB64);
@@ -327,7 +336,6 @@
       return decoder.decode(decrypted);
     }
     
-    // Get receiver's public key from server
     async function getReceiverPublicKey(receiverEmail: string): Promise<string | null> {
       try {
         const response = await fetch(`${API_URL}/api/user/public-key?email=${encodeURIComponent(receiverEmail)}`, {
@@ -343,73 +351,62 @@
       return null;
     }
     
-    // E2EE encrypt message for sending
-    async function e2eeEncryptMessage(content: string, receiverPublicKeyB64: string): Promise<{
+      async function e2eeEncryptMessage(content: string, receiverPublicKeyB64: string): Promise<{
       encryptedContent: string,
       nonce: string,
-      dhPublicKey: string
+      senderPublicKey: string
     }> {
-      // Generate ephemeral key pair for this message
-      const ephemeralKeyPair = await generateEphemeralKeyPair();
-      const dhPublicKey = await exportPublicKey(ephemeralKeyPair.publicKey);
+      if (!myPrivateKey || !myPublicKey) {
+        throw new Error('Sender keys not available');
+      }
       
-      // Import receiver's public key
       const receiverPublicKey = await importPublicKey(receiverPublicKeyB64);
       
-      // Derive shared secret
-      const sharedSecret = await deriveSharedSecret(ephemeralKeyPair.privateKey, receiverPublicKey);
+      const sharedSecret = await deriveSharedSecret(myPrivateKey, receiverPublicKey);
+      const sortedKeys = [myPublicKey, receiverPublicKeyB64].sort().join('');
+      const saltData = new TextEncoder().encode(sortedKeys);
+      const saltHash = await crypto.subtle.digest('SHA-256', saltData);
       
-      // Derive message key
-      const messageKey = await deriveMessageKey(sharedSecret, 'message-encryption');
+      const messageKey = await deriveMessageKey(sharedSecret, 'message-encryption', saltHash);
       
-      // Encrypt the message
       const { ciphertext, nonce } = await encryptMessage(content, messageKey);
       
       return {
         encryptedContent: ciphertext,
         nonce: nonce,
-        dhPublicKey: dhPublicKey
+        senderPublicKey: myPublicKey  
       };
     }
     
-    // E2EE decrypt received message
     async function e2eeDecryptMessage(
       encryptedContent: string, 
       nonce: string,
-      senderDHPublicKeyB64: string
+      otherPartyPublicKeyB64: string
     ): Promise<string> {
-      if (!myPrivateKey) {
+      if (!myPrivateKey || !myPublicKey) {
         throw new Error('Private key not available');
       }
       
-      // Import sender's DH public key
-      const senderPublicKey = await importPublicKey(senderDHPublicKeyB64);
+      const otherPartyPublicKey = await importPublicKey(otherPartyPublicKeyB64);
+      const sharedSecret = await deriveSharedSecret(myPrivateKey, otherPartyPublicKey);
+      const sortedKeys = [myPublicKey, otherPartyPublicKeyB64].sort().join('');
+      const saltData = new TextEncoder().encode(sortedKeys);
+      const saltHash = await crypto.subtle.digest('SHA-256', saltData);
       
-      // Derive shared secret
-      const sharedSecret = await deriveSharedSecret(myPrivateKey, senderPublicKey);
-      
-      // Derive message key
-      const messageKey = await deriveMessageKey(sharedSecret, 'message-encryption');
-      
-      // Decrypt the message
+      const messageKey = await deriveMessageKey(sharedSecret, 'message-encryption', saltHash);
       return decryptMessage(encryptedContent, nonce, messageKey);
     }
     
-    // Initialize E2EE keys
     async function initializeE2EE() {
       myPublicKey = localStorage.getItem('e2ee_public_key');
-      // Private key is already decrypted by backend and stored in sessionStorage
-      const privateKeyB64 = sessionStorage.getItem('e2ee_private_key');
+      const privateKeyB64 = sessionStorage.getItem('e2ee_private_key_pkcs8');
       
       if (myPublicKey && privateKeyB64) {
         try {
-          // Decode base64 to raw bytes
-          const privateKeyRaw = base64ToArrayBuffer(privateKeyB64);
-          
-          // Import as X25519 private key
+          const privateKeyPkcs8 = base64ToArrayBuffer(privateKeyB64);
           myPrivateKey = await crypto.subtle.importKey(
-            'raw',
-            privateKeyRaw,
+            'pkcs8',
+            privateKeyPkcs8,
             { name: 'X25519' },
             false,
             ['deriveBits']
@@ -422,25 +419,49 @@
           e2eeReady = false;
         }
       } else {
-        console.warn('E2EE keys not available - messages will be sent unencrypted');
+        console.warn('E2EE keys not available - please re-login to enable encryption');
         if (!myPublicKey) console.warn('Missing: e2ee_public_key');
-        if (!privateKeyB64) console.warn('Missing: e2ee_private_key (session)');
+        if (!privateKeyB64) console.warn('Missing: e2ee_private_key_pkcs8 (session) - re-login required');
         e2eeReady = false;
       }
     }
     
     // ==================== END E2EE FUNCTIONS ====================
     
-    // Parse and decrypt message content
-    async function parseMessageContent(rawContent: string, dhPublicKey: string): Promise<{ content: string, attachments: any[], encrypted: boolean }> {
+    async function parseMessageContent(rawContent: string, otherPartyPublicKey: string): Promise<{ content: string, attachments: any[], encrypted: boolean }> {
       try {
-        // Try to parse as JSON first
-        const parsed = JSON.parse(rawContent);
-        
-        // Check if it's an encrypted message
-        if (parsed.encrypted && parsed.ciphertext && parsed.nonce && dhPublicKey && e2eeReady) {
+        let parsed = JSON.parse(rawContent);
+        if (parsed.content && typeof parsed.content === 'string' && parsed.content.trim().startsWith('{')) {
           try {
-            const decryptedPayload = await e2eeDecryptMessage(parsed.ciphertext, parsed.nonce, dhPublicKey);
+            const innerParsed = JSON.parse(parsed.content);
+            if (innerParsed.encrypted) {
+              parsed = innerParsed;
+            } else if (innerParsed.content !== undefined) {
+              parsed = innerParsed;
+            }
+          } catch {
+          }
+        }
+        
+        if (parsed.encrypted && parsed.ciphertext && parsed.nonce) {
+          if (!otherPartyPublicKey) {
+            return {
+              content: '[🔒 Wiadomość zaszyfrowana - brak klucza do odszyfrowania]',
+              attachments: [],
+              encrypted: true
+            };
+          }
+          
+          if (!e2eeReady) {
+            return {
+              content: '[🔒 Wiadomość zaszyfrowana - odblokuj E2EE aby odszyfrować]',
+              attachments: [],
+              encrypted: true
+            };
+          }
+          
+          try {
+            const decryptedPayload = await e2eeDecryptMessage(parsed.ciphertext, parsed.nonce, otherPartyPublicKey);
             const decryptedData = JSON.parse(decryptedPayload);
             return {
               content: decryptedData.content || '',
@@ -450,30 +471,27 @@
           } catch (decryptError) {
             console.error('Failed to decrypt message:', decryptError);
             return {
-              content: '[🔒 Encrypted message - unable to decrypt]',
+              content: '[🔒 Wiadomość zaszyfrowana - nie można odszyfrować]',
               attachments: [],
               encrypted: true
             };
           }
         }
         
-        // Unencrypted message with structure
-        if (parsed.content !== undefined) {
+        if (parsed.content !== undefined && typeof parsed.content === 'string' && !parsed.encrypted) {
           return {
             content: parsed.content,
-            attachments: parsed.attachments || [],
+            attachments: Array.isArray(parsed.attachments) ? parsed.attachments : [],
             encrypted: false
           };
         }
         
-        // Plain text wrapped in JSON somehow
         return {
           content: rawContent,
           attachments: [],
           encrypted: false
         };
       } catch (e) {
-        // Not JSON, treat as plain text
         return {
           content: rawContent,
           attachments: [],
@@ -488,8 +506,7 @@
       localStorage.removeItem('user_email');
       localStorage.removeItem('user_id');
       localStorage.removeItem('e2ee_public_key');
-      localStorage.removeItem('e2ee_private_key_encrypted');
-      sessionStorage.removeItem('e2ee_password');
+      sessionStorage.removeItem('e2ee_private_key_pkcs8');
       window.location.href = '/login';
     });
 
@@ -506,27 +523,22 @@
       }
     }
 
-    // File upload handling
     const fileUpload = document.getElementById('fileUpload')!;
     const fileInput = document.getElementById('fileInput')! as HTMLInputElement;
     const fileList = document.getElementById('fileList')!;
-
     fileUpload.addEventListener('click', () => fileInput.click());
 
     fileInput.addEventListener('change', (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
       addFiles(files);
     });
-
     fileUpload.addEventListener('dragover', (e) => {
       e.preventDefault();
       fileUpload.classList.add('dragover');
     });
-
     fileUpload.addEventListener('dragleave', () => {
       fileUpload.classList.remove('dragover');
     });
-
     fileUpload.addEventListener('drop', (e) => {
       e.preventDefault();
       fileUpload.classList.remove('dragover');
@@ -561,7 +573,6 @@
         fileList.appendChild(fileItem);
       });
 
-      // Add remove handlers
       document.querySelectorAll('.remove-file').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const index = parseInt((e.target as HTMLElement).dataset.index || '0');
@@ -577,7 +588,6 @@
       return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     }
 
-    // Send message
     document.getElementById('composeForm')!.addEventListener('submit', async (e) => {
       e.preventDefault();
 
@@ -589,7 +599,6 @@
       sendBtn.textContent = 'Encrypting & Sending...';
 
       try {
-        // Convert files to base64 attachments
         const attachments = await Promise.all(currentFiles.map(async (file) => {
           return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -607,37 +616,32 @@
           });
         }));
 
-        // Prepare message payload
         const messagePayload = JSON.stringify({
           content: messageContent,
           attachments: attachments
         });
 
         let finalContent = messagePayload;
-        let dhPublicKey = '';
-        let messageNumber = 0;
-        let previousChainLength = 0;
+        let senderPublicKey = '';
+        let receiverPublicKeyForMsg = '';
         let encrypted = false;
 
-        // Try to encrypt with E2EE
         if (e2eeReady) {
           try {
-            // Get receiver's public key
             const receiverPublicKey = await getReceiverPublicKey(receiverEmail);
             
             if (receiverPublicKey) {
               const encryptedData = await e2eeEncryptMessage(messagePayload, receiverPublicKey);
-              
-              // Package encrypted content with nonce
               finalContent = JSON.stringify({
                 encrypted: true,
                 ciphertext: encryptedData.encryptedContent,
                 nonce: encryptedData.nonce
               });
               
-              dhPublicKey = encryptedData.dhPublicKey;
+              senderPublicKey = encryptedData.senderPublicKey;
+              receiverPublicKeyForMsg = receiverPublicKey;
               encrypted = true;
-              console.log('Message encrypted with E2EE');
+              console.log('Message encrypted with E2EE (shared secret)');
             } else {
               console.warn('Receiver does not have E2EE keys, sending unencrypted');
             }
@@ -658,9 +662,8 @@
             receiver_email: receiverEmail,
             content: finalContent,
             csrf_token: csrfToken,
-            dh_public_key: dhPublicKey,
-            message_number: messageNumber,
-            previous_chain_length: previousChainLength
+            dh_public_key: senderPublicKey,
+            receiver_public_key: receiverPublicKeyForMsg 
           })
         });
 
@@ -729,11 +732,13 @@
           
           const fromEmail = currentTab === 'inbox' ? msg.sender_email : msg.receiver_email;
           
-          // Parse and potentially decrypt message for preview
           let preview = '[Encrypted message]';
           let isEncrypted = false;
           try {
-            const parsed = await parseMessageContent(msg.content, msg.dh_public_key || '');
+            const keyForDecryption = currentTab === 'inbox' 
+              ? (msg.dh_public_key || '') 
+              : (msg.receiver_public_key || '');
+            const parsed = await parseMessageContent(msg.content, keyForDecryption);
             preview = parsed.content.length > 100 ? parsed.content.substring(0, 100) + '...' : parsed.content;
             isEncrypted = parsed.encrypted;
           } catch (e) {
@@ -777,7 +782,17 @@
           markMessageAsRead(messageId);
         }
 
-        const parsedContent = await parseMessageContent(msg.content, msg.dh_public_key || '');
+        const keyForDecryption = currentTab === 'inbox' 
+          ? (msg.dh_public_key || '') 
+          : (msg.receiver_public_key || '');
+        
+        const parsedContent = await parseMessageContent(msg.content, keyForDecryption);
+        console.log('Parsed content:', { 
+          content: parsedContent.content?.substring(0, 50),
+          attachmentsCount: parsedContent.attachments?.length,
+          attachments: parsedContent.attachments?.map((a: any) => ({ filename: a.filename, hasData: !!a.data })),
+          encrypted: parsedContent.encrypted 
+        });
         const messageContent = parsedContent.content;
         const attachments = parsedContent.attachments;
         const isEncrypted = parsedContent.encrypted;
@@ -808,7 +823,7 @@
           <div class="message-full">
             <div class="from">${escapeHtml(currentTab === 'inbox' ? 'From' : 'To')}: ${escapeHtml(currentTab === 'inbox' ? msg.sender_email : msg.receiver_email)} ${isEncrypted ? '<span style="color: #28a745;">🔒 End-to-End Encrypted</span>' : ''}</div>
             <div class="date">${escapeHtml(new Date(msg.created_at).toLocaleString())}</div>
-            <div class="content">${renderMarkdown(messageContent)}</div>
+            <div class="content"></div>
             ${attachmentsHtml}
             <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee;">
               <button class="download-btn" style="background: #dc3545;" onclick="deleteMessage(${msg.id})">
@@ -817,6 +832,11 @@
             </div>
           </div>
         `;
+        
+        const contentDiv = detail.querySelector('.content');
+        if (contentDiv) {
+          contentDiv.innerHTML = renderMarkdown(messageContent);
+        }
       } catch (error) {
         console.error('Open message error:', error);
         detail.innerHTML = '<div class="error">Failed to load message</div>';
@@ -854,31 +874,6 @@
       }
     };
 
-    (window as any).downloadAttachment = function(index: number, filename: string, contentType: string, base64Data: string) {
-      try {
-        const binaryString = atob(base64Data);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        
-        const blob = new Blob([bytes], { type: contentType });
-        const url = URL.createObjectURL(blob);
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } catch (error) {
-        console.error('Download error:', error);
-        alert('Failed to download attachment');
-      }
-    };
-
-    // Delete message
     (window as any).deleteMessage = async function(messageId: number) {
       if (!confirm('Are you sure you want to delete this message?')) return;
 
@@ -893,7 +888,6 @@
         });
 
         if (response.ok) {
-          // Close modal and refresh messages
           document.getElementById('messageModal')!.classList.remove('active');
           loadMessages();
           alert('Message deleted successfully');
@@ -907,7 +901,6 @@
       }
     };
 
-    // Mark message as read
     async function markMessageAsRead(messageId: number) {
       try {
         const response = await fetch(`${API_URL}/api/messages/mark-read`, {
@@ -920,7 +913,6 @@
         });
 
         if (response.ok) {
-          // Update UI - remove unread styling from the message item
           const messageItem = document.querySelector(`[data-message-id="${messageId}"]`);
           if (messageItem) {
             messageItem.classList.remove('unread');
@@ -931,25 +923,20 @@
       }
     }
 
-    // Close modal
     document.getElementById('closeModal')!.addEventListener('click', () => {
       document.getElementById('messageModal')!.classList.remove('active');
     });
 
-    // Click outside modal to close
     document.getElementById('messageModal')!.addEventListener('click', (e) => {
       if (e.target === e.currentTarget) {
         (e.target as HTMLElement).classList.remove('active');
       }
     });
 
-    // Initialize
     async function initialize() {
       await initializeE2EE();
       await getCsrfToken();
       await loadMessages();
-      
-      // Show E2EE status
       if (e2eeReady) {
         console.log('✅ E2EE is active - messages will be encrypted');
       } else {

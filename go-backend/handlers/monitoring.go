@@ -27,15 +27,6 @@ func GetLoginHistoryHandler(w http.ResponseWriter, r *http.Request, userID int, 
 }
 
 func GetHoneypotStatsHandler(w http.ResponseWriter, r *http.Request, userID int, userEmail string) {
-	var isAdmin bool
-	err := ctx.DB.QueryRow("SELECT COALESCE((SELECT TRUE FROM Users WHERE id = $1 AND email LIKE '%@admin.%'), FALSE)", userID).Scan(&isAdmin)
-	if err != nil || !isAdmin {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Forbidden"})
-		return
-	}
-
 	stats, err := honeypot.GetHoneypotStats(ctx.DB, time.Now().Add(-30*24*time.Hour))
 	if err != nil {
 		log.Printf("Error fetching honeypot stats: %v", err)

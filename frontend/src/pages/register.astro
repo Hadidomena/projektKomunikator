@@ -156,20 +156,74 @@
       }
 
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Registering...';
+      submitBtn.textContent = 'Generating keys...';
 
       // Get honeypot value
       const website = (document.getElementById('website') as HTMLInputElement).value;
 
       try {
+        const keyPair = await crypto.subtle.generateKey(
+          { name: 'X25519' },
+          true,
+          ['deriveBits']
+        ) as CryptoKeyPair;
+        
+        const publicKeyRaw = await crypto.subtle.exportKey('raw', keyPair.publicKey);
+        const privateKeyPkcs8 = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+        
+        const publicKeyB64 = btoa(String.fromCharCode(...new Uint8Array(publicKeyRaw)));
+        
+        const encoder = new TextEncoder();
+        const passwordKey = await crypto.subtle.importKey(
+          'raw',
+          encoder.encode(password),
+          { name: 'PBKDF2' },
+          false,
+          ['deriveBits', 'deriveKey']
+        );
+        
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const aesKey = await crypto.subtle.deriveKey(
+          { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+          passwordKey,
+          { name: 'AES-GCM', length: 256 },
+          false,
+          ['encrypt', 'decrypt']
+        );
+        
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encryptedPrivateKey = await crypto.subtle.encrypt(
+          { name: 'AES-GCM', iv },
+          aesKey,
+          privateKeyPkcs8
+        );
+        
+        const stored = new Uint8Array(salt.length + iv.length + encryptedPrivateKey.byteLength);
+        stored.set(salt, 0);
+        stored.set(iv, salt.length);
+        stored.set(new Uint8Array(encryptedPrivateKey), salt.length + iv.length);
+        const privateKeyEncryptedB64 = btoa(String.fromCharCode(...stored));
+        
+        submitBtn.textContent = 'Registering...';
+
         const response = await fetch('/api/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, email, password, website }),
+          body: JSON.stringify({ 
+            username, 
+            email, 
+            password, 
+            website,
+            e2ee_public_key: publicKeyB64,
+            e2ee_private_key_encrypted: privateKeyEncryptedB64
+          }),
         });
 
         if (response.ok) {
-          messageEl.textContent = 'Registration successful! Redirecting to login...';
+          localStorage.setItem(`e2ee_private_key_${email}`, privateKeyEncryptedB64);
+          localStorage.setItem('e2ee_public_key', publicKeyB64);
+          
+          messageEl.textContent = 'Registration successful! E2EE keys generated. Redirecting to login...';
           messageEl.style.color = 'green';
           setTimeout(() => {
             window.location.href = '/';

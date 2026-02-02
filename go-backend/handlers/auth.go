@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Hadidomena/projektKomunikator/cryptography"
-	"github.com/Hadidomena/projektKomunikator/e2ee"
 	"github.com/Hadidomena/projektKomunikator/honeypot"
 	passwordutils "github.com/Hadidomena/projektKomunikator/password_utils"
 	"github.com/Hadidomena/projektKomunikator/validation"
@@ -127,21 +126,19 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		hashedPassword = result.hash
 	}
 
-	// Generate E2EE keys for the user
-	deviceKeys, err := e2ee.GenerateDeviceKeys(0, "user-keys")
-	if err != nil {
-		log.Printf("Failed to generate E2EE keys: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
-		return
+	publicKey := req.E2EEPublicKey
+	privateKeyEncrypted := req.E2EEPrivateKeyEncrypted
+	if publicKey == "" {
+		log.Printf("Warning: No E2EE public key provided during registration for %s", req.Email)
+	}
+	if privateKeyEncrypted == "" {
+		log.Printf("Warning: No E2EE private key provided during registration for %s", req.Email)
 	}
 
-	// First insert user to get the real userID (without E2EE keys)
 	var userID int
 	err = ctx.DB.QueryRowContext(ctx2,
-		"INSERT INTO Users (username, email, password_hash) VALUES ($1, $2, $3) RETURNING id",
-		req.Username, strings.ToLower(req.Email), hashedPassword).Scan(&userID)
+		"INSERT INTO Users (username, email, password_hash, e2ee_public_key, e2ee_private_key_encrypted) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+		req.Username, strings.ToLower(req.Email), hashedPassword, publicKey, privateKeyEncrypted).Scan(&userID)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			w.Header().Set("Content-Type", "application/json")
@@ -165,27 +162,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	encryptedPrivateKey, err := cryptography.EncryptForUser(deviceKeys.PrivateKey, req.Password, userID)
-	if err != nil {
-		ctx.DB.ExecContext(ctx2, "DELETE FROM Users WHERE id = $1", userID)
-		log.Printf("Failed to encrypt private key: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
-		return
-	}
-
-	_, err = ctx.DB.ExecContext(ctx2,
-		"UPDATE Users SET e2ee_public_key = $1, e2ee_private_key_encrypted = $2 WHERE id = $3",
-		deviceKeys.PublicKey, encryptedPrivateKey, userID)
-	if err != nil {
-		ctx.DB.ExecContext(ctx2, "DELETE FROM Users WHERE id = $1", userID)
-		log.Printf("Failed to update user with E2EE keys: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
-		return
-	}
+	log.Printf("User registered successfully: %s (ID: %d)", req.Email, userID)
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})

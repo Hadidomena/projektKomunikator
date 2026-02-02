@@ -24,10 +24,11 @@ import (
 )
 
 type RegistrationRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Website  string `json:"website,omitempty"`
+	Username      string `json:"username"`
+	Email         string `json:"email"`
+	Password      string `json:"password"`
+	Website       string `json:"website,omitempty"`
+	E2EEPublicKey string `json:"e2ee_public_key,omitempty"`
 }
 
 type LoginRequest struct {
@@ -37,50 +38,45 @@ type LoginRequest struct {
 
 type SendMessageRequest struct {
 	ReceiverEmail string       `json:"receiver_email"`
-	Content       string       `json:"content"`               // Encrypted content (client-side E2EE)
-	Signature     string       `json:"signature,omitempty"`   // Message signature for authenticity
-	CSRFToken     string       `json:"csrf_token"`            // CSRF token
-	Attachments   []Attachment `json:"attachments,omitempty"` // Attachments (encrypted by client)
-	// Ratcheting fields (managed by client)
-	DHPublicKey         string `json:"dh_public_key,omitempty"`         // Sender's current DH public key
-	MessageNumber       int    `json:"message_number,omitempty"`        // Message number in the sending chain
-	PreviousChainLength int    `json:"previous_chain_length,omitempty"` // Number of messages in previous receiving chain
+	Content       string       `json:"content"`
+	Signature     string       `json:"signature,omitempty"`
+	CSRFToken     string       `json:"csrf_token"`
+	Attachments   []Attachment `json:"attachments,omitempty"`
+	DHPublicKey   string       `json:"dh_public_key,omitempty"`
 }
 
 type E2EEKeysResponse struct {
 	PublicKey           string `json:"public_key"`
-	PrivateKeyEncrypted string `json:"private_key_encrypted"` // Encrypted with user's password
+	PrivateKeyEncrypted string `json:"private_key_encrypted"`
 }
 
 type MessageResponse struct {
-	ID            int          `json:"id"`
-	SenderEmail   string       `json:"sender_email"`
-	ReceiverEmail string       `json:"receiver_email"`
-	Content       string       `json:"content"` // Encrypted content (client-side E2EE)
-	Signature     string       `json:"signature,omitempty"`
-	IsRead        bool         `json:"is_read"`
-	CreatedAt     time.Time    `json:"created_at"`
-	ReadAt        *time.Time   `json:"read_at,omitempty"`
-	Attachments   []Attachment `json:"attachments,omitempty"` // Encrypted by client
-	// Ratcheting fields (managed by client)
-	DHPublicKey         string `json:"dh_public_key,omitempty"`
-	MessageNumber       int    `json:"message_number,omitempty"`
-	PreviousChainLength int    `json:"previous_chain_length,omitempty"`
+	ID                int          `json:"id"`
+	SenderEmail       string       `json:"sender_email"`
+	ReceiverEmail     string       `json:"receiver_email"`
+	Content           string       `json:"content"`
+	Signature         string       `json:"signature,omitempty"`
+	IsRead            bool         `json:"is_read"`
+	CreatedAt         time.Time    `json:"created_at"`
+	ReadAt            *time.Time   `json:"read_at,omitempty"`
+	Attachments       []Attachment `json:"attachments,omitempty"`
+	DHPublicKey       string       `json:"dh_public_key,omitempty"`
+	ReceiverPublicKey string       `json:"receiver_public_key,omitempty"`
 }
 
 type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
-// Attachment represents a file attachment in a message (client-side encrypted)
+// Attachment represents a file attachment in a message
 type Attachment struct {
 	Filename    string `json:"filename"`
 	ContentType string `json:"content_type"`
 	Size        int64  `json:"size"`
-	Data        string `json:"data"` // base64 encoded, encrypted by client
+	Data        string `json:"data"`
 }
 
-// MessageWithAttachments represents the complete message structure (client-side encrypted)
+// MessageWithAttachments represents the complete message structure
 type MessageWithAttachments struct {
 	Content     string       `json:"content"`
 	Attachments []Attachment `json:"attachments,omitempty"`
@@ -97,7 +93,7 @@ type PasswordResetVerify struct {
 
 type TOTPSetupRequest struct {
 	CSRFToken string `json:"csrf_token"`
-	Password  string `json:"password"` // Required: to encrypt the TOTP secret for the user
+	Password  string `json:"password"`
 }
 
 type TOTPSetupResponse struct {
@@ -135,8 +131,6 @@ func init() {
 		log.Fatal("SECURITY ERROR: PEPPER environment variable not set")
 	}
 	cryptography.SetPepper(appPepper)
-
-	// Initialize encryption key for sensitive data (TOTP secrets, tokens, etc.)
 	encryptionSecret := os.Getenv("ENCRYPTION_SECRET")
 	if encryptionSecret == "" {
 		log.Fatal("SECURITY ERROR: ENCRYPTION_SECRET environment variable not set")
@@ -205,6 +199,7 @@ func main() {
 	mux.HandleFunc("/api/messages/get", authMiddleware(getMessageHandler))
 	mux.HandleFunc("/api/e2ee/keys", authMiddleware(getE2EEKeysHandler))
 	mux.HandleFunc("/api/user/public-key", authMiddleware(getUserPublicKeyHandler))
+	mux.HandleFunc("/api/user/update-public-key", authMiddleware(updateUserPublicKeyHandler))
 	mux.HandleFunc("/api/password-reset/request", handlers.PasswordResetRequestHandler)
 	mux.HandleFunc("/api/password-reset/verify", handlers.PasswordResetVerifyHandler)
 	mux.HandleFunc("/api/login-history", authMiddleware(loginHistoryHandler))
@@ -293,7 +288,6 @@ func getUserFromContext(r *http.Request) (int, string, error) {
 	return handlers.GetUserFromContext(r)
 }
 
-// sendMessageHandler handles sending messages between users
 func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
@@ -338,10 +332,10 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate message size (allow larger for attachments in base64)
-	if len(req.Content) > 50000 {
+	if len(req.Content) > 25*1024*1024 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message too long"})
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message too long (max 15MB attachments)"})
 		return
 	}
 
@@ -392,30 +386,14 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// NOTE: For simplicity, we're storing encrypted content in the database
-	// The content should already be encrypted by the client before sending
-	// Backend just stores it as-is for E2EE
-	msgWithAttachments := MessageWithAttachments{
-		Content:     req.Content,
-		Attachments: req.Attachments,
-	}
+	contentToStore := req.Content
 
-	// Serialize message with attachments as JSON
-	msgJSON, err := json.Marshal(msgWithAttachments)
-	if err != nil {
-		log.Printf("Failed to serialize message: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message processing failed"})
-		return
-	}
-
-	encKeyStr := "client-e2ee-ratchet" // Indicating client-side encryption with Double Ratchet
+	encKeyStr := "client-e2ee"
 
 	var messageID int
 	err = db.QueryRowContext(ctx,
-		"INSERT INTO Messages (sender_id, receiver_id, content, encrypted_key, message_signature, dh_public_key, message_number, previous_chain_length) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
-		senderID, receiverID, string(msgJSON), encKeyStr, req.Signature, req.DHPublicKey, req.MessageNumber, req.PreviousChainLength).Scan(&messageID)
+		"INSERT INTO Messages (sender_id, receiver_id, content, encrypted_key, message_signature, dh_public_key) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+		senderID, receiverID, contentToStore, encKeyStr, req.Signature, req.DHPublicKey).Scan(&messageID)
 	if err != nil {
 		log.Printf("Failed to insert message: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -453,7 +431,7 @@ func getInboxHandler(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.QueryContext(ctx, `
 		SELECT m.id, u.email, m.content, m.message_signature, m.is_read, m.created_at, m.read_at,
-		       COALESCE(m.dh_public_key, ''), COALESCE(m.message_number, 0), COALESCE(m.previous_chain_length, 0)
+		       COALESCE(m.dh_public_key, '')
 		FROM Messages m
 		JOIN Users u ON m.sender_id = u.id
 		WHERE m.receiver_id = $1 AND m.is_deleted_by_receiver = FALSE
@@ -474,7 +452,7 @@ func getInboxHandler(w http.ResponseWriter, r *http.Request) {
 		var senderEmail string
 		var signature sql.NullString
 		err := rows.Scan(&msg.ID, &senderEmail, &msg.Content, &signature, &msg.IsRead, &msg.CreatedAt, &msg.ReadAt,
-			&msg.DHPublicKey, &msg.MessageNumber, &msg.PreviousChainLength)
+			&msg.DHPublicKey)
 		if err != nil {
 			log.Printf("Failed to scan message: %v", err)
 			continue
@@ -511,7 +489,8 @@ func getSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT m.id, u.email, m.content, m.is_read, m.created_at, m.read_at
+		SELECT m.id, u.email, m.content, m.is_read, m.created_at, m.read_at,
+		       COALESCE(m.dh_public_key, ''), COALESCE(u.e2ee_public_key, '')
 		FROM Messages m
 		JOIN Users u ON m.receiver_id = u.id
 		WHERE m.sender_id = $1 AND m.is_deleted_by_sender = FALSE
@@ -530,13 +509,16 @@ func getSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var msg MessageResponse
 		var receiverEmail string
-		err := rows.Scan(&msg.ID, &receiverEmail, &msg.Content, &msg.IsRead, &msg.CreatedAt, &msg.ReadAt)
+		var receiverPublicKey string
+		err := rows.Scan(&msg.ID, &receiverEmail, &msg.Content, &msg.IsRead, &msg.CreatedAt, &msg.ReadAt,
+			&msg.DHPublicKey, &receiverPublicKey)
 		if err != nil {
 			log.Printf("Failed to scan message: %v", err)
 			continue
 		}
 		msg.SenderEmail = userEmail
 		msg.ReceiverEmail = receiverEmail
+		msg.ReceiverPublicKey = receiverPublicKey
 		messages = append(messages, msg)
 	}
 
@@ -621,7 +603,6 @@ func getMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get message ID from query parameter
 	messageIDStr := r.URL.Query().Get("id")
 	if messageIDStr == "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -641,17 +622,18 @@ func getMessageHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// Get message details
 	var msg MessageResponse
 	var senderEmail, receiverEmail string
 	var senderID, receiverID int
 	var encryptedKey sql.NullString
 	var signature sql.NullString
+	var receiverPublicKey string
 
 	err = db.QueryRowContext(ctx, `
 		SELECT m.id, m.sender_id, u1.email, m.receiver_id, u2.email, 
 		       m.content, m.encrypted_key, m.message_signature,
-		       m.is_read, m.created_at, m.read_at
+		       m.is_read, m.created_at, m.read_at, COALESCE(m.dh_public_key, ''),
+		       COALESCE(u2.e2ee_public_key, '')
 		FROM Messages m
 		JOIN Users u1 ON m.sender_id = u1.id
 		JOIN Users u2 ON m.receiver_id = u2.id
@@ -662,7 +644,7 @@ func getMessageHandler(w http.ResponseWriter, r *http.Request) {
 	`, messageID, userID).Scan(
 		&msg.ID, &senderID, &senderEmail, &receiverID, &receiverEmail,
 		&msg.Content, &encryptedKey, &signature,
-		&msg.IsRead, &msg.CreatedAt, &msg.ReadAt,
+		&msg.IsRead, &msg.CreatedAt, &msg.ReadAt, &msg.DHPublicKey, &receiverPublicKey,
 	)
 
 	if err != nil {
@@ -681,27 +663,13 @@ func getMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	msg.SenderEmail = senderEmail
 	msg.ReceiverEmail = receiverEmail
+	msg.ReceiverPublicKey = receiverPublicKey
 	if signature.Valid {
 		msg.Signature = signature.String
 	}
 
-	// Decrypt message if it's encrypted and user has access
-	// Note: E2EE decryption happens on frontend with user's decrypted private key
-	if encryptedKey.Valid && encryptedKey.String == "e2ee" {
-		// Message is encrypted - frontend will handle decryption
-		// Just send the encrypted content as-is
-	} else {
-		// Try to parse as JSON with attachments (for non-encrypted messages)
-		var msgWithAttachments MessageWithAttachments
-		if err := json.Unmarshal([]byte(msg.Content), &msgWithAttachments); err == nil {
-			// Successfully parsed as JSON with attachments
-			if len(msgWithAttachments.Attachments) > 0 {
-				msg.Content = msgWithAttachments.Content
-				msg.Attachments = msgWithAttachments.Attachments
-			}
-			// If no attachments, msg.Content already has the right value
-		}
-		// If parsing fails, msg.Content is just plain text (backwards compatible)
+	if !(encryptedKey.Valid && encryptedKey.String == "e2ee") {
+		fmt.Printf("Warning: Message %d is not marked as encrypted\n", msg.ID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -709,7 +677,6 @@ func getMessageHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(msg)
 }
 
-// deleteMessageHandler soft-deletes a message
 func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Only DELETE method is allowed", http.StatusMethodNotAllowed)
@@ -773,8 +740,6 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// registerDeviceHandler handles registering a new device for E2EE
-// getE2EEKeysHandler returns E2EE keys for the authenticated user
 func getE2EEKeysHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
@@ -881,6 +846,61 @@ func getUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
 		"e2ee_public_key": publicKey,
+	})
+}
+
+// updateUserPublicKeyHandler allows a user to update their E2EE public key
+func updateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, _, err := getUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	var req struct {
+		E2EEPublicKey string `json:"e2ee_public_key"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request"})
+		return
+	}
+
+	if req.E2EEPublicKey == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Public key is required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	_, err = db.ExecContext(ctx,
+		"UPDATE Users SET e2ee_public_key = $1 WHERE id = $2",
+		req.E2EEPublicKey, userID)
+	if err != nil {
+		log.Printf("Failed to update public key for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to update public key"})
+		return
+	}
+
+	log.Printf("Updated E2EE public key for user %d", userID)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Public key updated successfully",
 	})
 }
 
@@ -1027,8 +1047,9 @@ func totpSetupHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
-		"encrypted_secret": encryptedSecretForUser, // Encrypted with user's password
-		"qr_code":          qrCodeURL,              // QR code URL for authenticator app
+		"secret":           secret,
+		"encrypted_secret": encryptedSecretForUser,
+		"qr_code":          qrCodeURL, // QR code URL for authenticator app
 	})
 }
 
