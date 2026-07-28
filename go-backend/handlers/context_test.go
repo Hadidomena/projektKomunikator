@@ -16,7 +16,7 @@ func TestInitializeAndGetContext(t *testing.T) {
 	loginTracker := validation.NewLoginAttemptTracker()
 
 	// Initialize handlers context
-	handlers.Initialize(db, csrfStore, loginTracker)
+	handlers.Initialize(db, csrfStore, loginTracker, "test-e2ee-pepper")
 
 	// Get context
 	ctx := handlers.GetContext()
@@ -40,7 +40,7 @@ func TestInitializeAndGetContext(t *testing.T) {
 
 func TestGetContextBeforeInitialize(t *testing.T) {
 	// Reset context by initializing with nil (not recommended in production)
-	handlers.Initialize(nil, nil, nil)
+	handlers.Initialize(nil, nil, nil, "")
 
 	ctx := handlers.GetContext()
 
