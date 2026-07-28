@@ -10,7 +10,7 @@ import (
 
 func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'")
 
 		w.Header().Set("X-Frame-Options", "DENY")
 
@@ -30,7 +30,6 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// CORSMiddleware handles CORS with configurable allowed origins
 func CORSMiddleware(next http.Handler) http.Handler {
 	allowedOrigins := strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",")
 	if len(allowedOrigins) == 0 || allowedOrigins[0] == "" {
@@ -77,9 +76,6 @@ type visitor struct {
 	count    int
 }
 
-// NewRateLimiter creates a new rate limiter
-// rate: max requests per window
-// window: time window duration
 func NewRateLimiter(rate int, window time.Duration) *RateLimiter {
 	rl := &RateLimiter{
 		visitors: make(map[string]*visitor),
@@ -141,7 +137,6 @@ func (rl *RateLimiter) Allow(ip string) bool {
 	return true
 }
 
-// RateLimitMiddleware applies rate limiting
 func (rl *RateLimiter) RateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := r.RemoteAddr
