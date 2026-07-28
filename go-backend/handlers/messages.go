@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,29 @@ import (
 
 	"github.com/Hadidomena/projektKomunikator/validation"
 )
+
+type PaginationMeta struct {
+	Page       int `json:"page"`
+	Limit      int `json:"limit"`
+	Total      int `json:"total"`
+	TotalPages int `json:"total_pages"`
+}
+
+func parsePagination(r *http.Request) (int, int) {
+	page := 1
+	limit := 20
+	if p := r.URL.Query().Get("page"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil && v > 0 {
+			page = v
+		}
+	}
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 100 {
+			limit = v
+		}
+	}
+	return page, limit
+}
 
 type SendMessageRequest struct {
 	ReceiverEmail string       `json:"receiver_email"`
@@ -175,8 +199,24 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	page, limit := parsePagination(r)
+	offset := (page - 1) * limit
+
 	ctxDB, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+
+	var total int
+	err = ctx.DB.QueryRowContext(ctxDB, `
+		SELECT COUNT(*) FROM Messages m
+		WHERE m.receiver_id = $1 AND m.is_deleted_by_receiver = FALSE
+	`, userID).Scan(&total)
+	if err != nil {
+		log.Printf("Failed to count inbox messages: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve messages"})
+		return
+	}
 
 	rows, err := ctx.DB.QueryContext(ctxDB, `
 		SELECT m.id, u.email, m.content, m.message_signature, m.is_read, m.created_at, m.read_at,
@@ -185,7 +225,8 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 		JOIN Users u ON m.sender_id = u.id
 		WHERE m.receiver_id = $1 AND m.is_deleted_by_receiver = FALSE
 		ORDER BY m.created_at DESC
-	`, userID)
+		LIMIT $2 OFFSET $3
+	`, userID, limit, offset)
 	if err != nil {
 		log.Printf("Failed to get messages: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -216,7 +257,10 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(messages)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"messages":   messages,
+		"pagination": PaginationMeta{Page: page, Limit: limit, Total: total, TotalPages: int(math.Ceil(float64(total) / float64(limit)))},
+	})
 }
 
 func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
@@ -233,8 +277,24 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	page, limit := parsePagination(r)
+	offset := (page - 1) * limit
+
 	ctxDB, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+
+	var total int
+	err = ctx.DB.QueryRowContext(ctxDB, `
+		SELECT COUNT(*) FROM Messages m
+		WHERE m.sender_id = $1 AND m.is_deleted_by_sender = FALSE
+	`, userID).Scan(&total)
+	if err != nil {
+		log.Printf("Failed to count sent messages: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve messages"})
+		return
+	}
 
 	rows, err := ctx.DB.QueryContext(ctxDB, `
 		SELECT m.id, u.email, m.content, m.is_read, m.created_at, m.read_at,
@@ -243,7 +303,8 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		JOIN Users u ON m.receiver_id = u.id
 		WHERE m.sender_id = $1 AND m.is_deleted_by_sender = FALSE
 		ORDER BY m.created_at DESC
-	`, userID)
+		LIMIT $2 OFFSET $3
+	`, userID, limit, offset)
 	if err != nil {
 		log.Printf("Failed to get sent messages: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -272,7 +333,10 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(messages)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"messages":   messages,
+		"pagination": PaginationMeta{Page: page, Limit: limit, Total: total, TotalPages: int(math.Ceil(float64(total) / float64(limit)))},
+	})
 }
 
 func MarkMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {

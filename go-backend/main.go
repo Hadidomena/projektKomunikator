@@ -108,6 +108,8 @@ func main() {
 	mux.HandleFunc("/api/e2ee/config", authMiddleware(handlers.E2EEConfigHandler))
 	mux.HandleFunc("/api/user/public-key", authMiddleware(handlers.GetUserPublicKeyHandler))
 	mux.HandleFunc("/api/user/update-public-key", authMiddleware(handlers.UpdateUserPublicKeyHandler))
+	mux.HandleFunc("/api/user/fingerprint", authMiddleware(handlers.GetUserFingerprintHandler))
+	mux.HandleFunc("/api/e2ee/fingerprint", authMiddleware(handlers.GetE2EEFingerprintHandler))
 	mux.HandleFunc("/api/password-reset/request", handlers.PasswordResetRequestHandler)
 	mux.HandleFunc("/api/password-reset/verify", handlers.PasswordResetVerifyHandler)
 	mux.HandleFunc("/api/login-history", authMiddleware(handlers.LoginHistoryHandler))

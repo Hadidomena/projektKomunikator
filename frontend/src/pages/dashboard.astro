@@ -95,6 +95,7 @@
     <h1>💬 Communicator</h1>
     <div class="user-info">
       <span id="userEmail">Loading...</span>
+      <span id="fingerprintDisplay" style="font-size: 11px; color: rgba(255,255,255,0.6); cursor: pointer;" title="Your E2EE key fingerprint - share this with others to verify your identity">🔑</span>
       <a href="/settings" style="color: white; text-decoration: none; margin-right: 15px;">⚙️ Settings</a>
       <button class="logout-btn" id="logoutBtn">Logout</button>
     </div>
@@ -106,7 +107,11 @@
       <form id="composeForm">
         <div class="form-group">
           <label for="receiverEmail">To:</label>
-          <input type="email" id="receiverEmail" required placeholder="recipient@example.com" />
+          <div style="display: flex; gap: 8px;">
+            <input type="email" id="receiverEmail" required placeholder="recipient@example.com" style="flex: 1;" />
+            <button type="button" id="verifyFingerprintBtn" style="padding: 10px 15px; font-size: 13px;" title="Verify recipient's E2EE fingerprint">🔍 Verify</button>
+          </div>
+          <div id="recipientFingerprintInfo" style="font-size: 12px; color: #666; margin-top: 5px; display: none;"></div>
         </div>
         <div class="form-group">
           <label for="messageContent">Message:</label>
@@ -157,6 +162,10 @@
     let myPublicKey: string | null = null;
     let myPrivateKey: CryptoKey | null = null;
     let e2eeReady = false;
+    let myFingerprint: string | null = null;
+    let currentPage = 1;
+    let totalPages = 1;
+    let isLoadingMore = false;
 
     function renderMarkdown(content: string): string {
       try {
@@ -714,18 +723,25 @@
 
     async function loadMessages() {
       const container = document.getElementById('messageContainer')!;
+      currentPage = 1;
       container.innerHTML = '<div class="loading">Loading messages...</div>';
 
       const endpoint = currentTab === 'inbox' ? '/api/messages' : '/api/messages/sent';
 
       try {
-        const response = await fetch(`${API_URL}${endpoint}`, {
+        const response = await fetch(`${API_URL}${endpoint}?page=${currentPage}&limit=20`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
 
         if (!response.ok) throw new Error('Failed to load messages');
 
-        const messages = await response.json();
+        const data = await response.json();
+        const messages = data.messages || data;
+        const pagination = data.pagination;
+
+        if (pagination) {
+          totalPages = pagination.total_pages;
+        }
 
         if (messages.length === 0) {
           container.innerHTML = '<div class="loading">No messages</div>';
@@ -766,9 +782,127 @@
           messageItem.addEventListener('click', () => openMessage(msg.id));
           messageList.appendChild(messageItem);
         }
+
+        // Pagination controls
+        if (pagination && totalPages > 1) {
+          const nav = document.createElement('div');
+          nav.style.cssText = 'display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px; padding: 15px;';
+
+          const prevBtn = document.createElement('button');
+          prevBtn.textContent = '← Previous';
+          prevBtn.disabled = currentPage <= 1;
+          prevBtn.addEventListener('click', async () => {
+            if (currentPage <= 1) return;
+            currentPage--;
+            container.innerHTML = '<div class="loading">Loading...</div>';
+            await loadPage(currentPage);
+          });
+
+          const pageInfo = document.createElement('span');
+          pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+          pageInfo.style.cssText = 'font-size: 14px; color: #666;';
+
+          const nextBtn = document.createElement('button');
+          nextBtn.textContent = 'Next →';
+          nextBtn.disabled = currentPage >= totalPages;
+          nextBtn.addEventListener('click', async () => {
+            if (currentPage >= totalPages) return;
+            currentPage++;
+            container.innerHTML = '<div class="loading">Loading...</div>';
+            await loadPage(currentPage);
+          });
+
+          nav.appendChild(prevBtn);
+          nav.appendChild(pageInfo);
+          nav.appendChild(nextBtn);
+          container.appendChild(nav);
+        }
       } catch (error) {
         console.error('Load messages error:', error);
         container.innerHTML = '<div class="error">Failed to load messages</div>';
+      }
+    }
+
+    async function loadPage(page: number) {
+      currentPage = page;
+      const container = document.getElementById('messageContainer')!;
+      const endpoint = currentTab === 'inbox' ? '/api/messages' : '/api/messages/sent';
+
+      try {
+        const response = await fetch(`${API_URL}${endpoint}?page=${page}&limit=20`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error('Failed to load messages');
+
+        const data = await response.json();
+        const messages = data.messages || data;
+        const pagination = data.pagination;
+
+        if (pagination) {
+          totalPages = pagination.total_pages;
+        }
+
+        container.innerHTML = '<div class="message-list"></div>';
+        const messageList = container.querySelector('.message-list')!;
+
+        for (const msg of messages) {
+          const messageItem = document.createElement('div');
+          messageItem.className = `message-item ${!msg.is_read && currentTab === 'inbox' ? 'unread' : ''}`;
+          messageItem.setAttribute('data-message-id', msg.id);
+
+          const fromEmail = currentTab === 'inbox' ? msg.sender_email : msg.receiver_email;
+
+          let preview = '[Encrypted message]';
+          let isEncrypted = false;
+          try {
+            const keyForDecryption = currentTab === 'inbox'
+              ? (msg.dh_public_key || '')
+              : (msg.receiver_public_key || '');
+            const parsed = await parseMessageContent(msg.content, keyForDecryption);
+            preview = parsed.content.length > 100 ? parsed.content.substring(0, 100) + '...' : parsed.content;
+            isEncrypted = parsed.encrypted;
+          } catch (e) {
+            preview = msg.content.length > 100 ? msg.content.substring(0, 100) + '...' : msg.content;
+          }
+
+          messageItem.innerHTML = `
+            <div class="message-header">
+              <span class="message-from">${escapeHtml(currentTab === 'inbox' ? 'From' : 'To')}: ${escapeHtml(fromEmail)} ${isEncrypted ? '🔒' : ''}</span>
+              <span class="message-date">${escapeHtml(new Date(msg.created_at).toLocaleString())}</span>
+            </div>
+            <div class="message-preview">${escapeHtml(preview)}</div>
+          `;
+
+          messageItem.addEventListener('click', () => openMessage(msg.id));
+          messageList.appendChild(messageItem);
+        }
+
+        if (pagination && totalPages > 1) {
+          const nav = document.createElement('div');
+          nav.style.cssText = 'display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px; padding: 15px;';
+
+          const prevBtn = document.createElement('button');
+          prevBtn.textContent = '← Previous';
+          prevBtn.disabled = page <= 1;
+          prevBtn.addEventListener('click', () => loadPage(page - 1));
+
+          const pageInfo = document.createElement('span');
+          pageInfo.textContent = `Page ${page} of ${totalPages}`;
+          pageInfo.style.cssText = 'font-size: 14px; color: #666;';
+
+          const nextBtn = document.createElement('button');
+          nextBtn.textContent = 'Next →';
+          nextBtn.disabled = page >= totalPages;
+          nextBtn.addEventListener('click', () => loadPage(page + 1));
+
+          nav.appendChild(prevBtn);
+          nav.appendChild(pageInfo);
+          nav.appendChild(nextBtn);
+          container.appendChild(nav);
+        }
+      } catch (error) {
+        console.error('Load page error:', error);
       }
     }
 
@@ -943,8 +1077,60 @@
       }
     });
 
+    async function fetchFingerprint() {
+      try {
+        const response = await fetch(`${API_URL}/api/e2ee/fingerprint`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          myFingerprint = data.fingerprint;
+          const display = document.getElementById('fingerprintDisplay');
+          if (display && myFingerprint) {
+            display.textContent = '🔑 ' + myFingerprint.substring(0, 16) + '...';
+            display.title = 'Your E2EE fingerprint:\n' + myFingerprint.match(/.{1,4}/g)?.join(' ') + '\n\nShare this with others to verify your identity.';
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch fingerprint:', error);
+      }
+    }
+
+    document.getElementById('fingerprintDisplay')?.addEventListener('click', () => {
+      if (myFingerprint) {
+        const formatted = myFingerprint.match(/.{1,4}/g)?.join(' ') || myFingerprint;
+        alert('Your E2EE Key Fingerprint:\n\n' + formatted + '\n\nShare this with others to verify your identity.');
+      }
+    });
+
+    document.getElementById('verifyFingerprintBtn')?.addEventListener('click', async () => {
+      const email = (document.getElementById('receiverEmail') as HTMLInputElement).value;
+      if (!email) {
+        alert('Please enter a recipient email first');
+        return;
+      }
+      try {
+        const response = await fetch(`${API_URL}/api/user/fingerprint?email=${encodeURIComponent(email)}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const info = document.getElementById('recipientFingerprintInfo')!;
+        if (response.ok) {
+          const data = await response.json();
+          const formatted = data.fingerprint.match(/.{1,4}/g)?.join(' ') || data.fingerprint;
+          info.innerHTML = `🔒 Recipient's fingerprint: <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px;">${formatted}</code>`;
+          info.style.display = 'block';
+        } else {
+          info.textContent = '⚠️ Could not fetch fingerprint - user may not have E2EE configured';
+          info.style.display = 'block';
+        }
+      } catch (error) {
+        console.error('Fingerprint lookup error:', error);
+      }
+    });
+
     async function initialize() {
       await initializeE2EE();
+      await fetchFingerprint();
       await getCsrfToken();
       await loadMessages();
       if (e2eeReady) {

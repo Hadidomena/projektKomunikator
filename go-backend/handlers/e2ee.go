@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -247,4 +249,110 @@ func CSRFTokenHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(CSRFTokenResponse{Token: token})
+}
+
+func GetE2EEFingerprintHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, _, err := GetUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	ctxDB, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	var publicKey string
+	err = ctx.DB.QueryRowContext(ctxDB,
+		"SELECT COALESCE(e2ee_public_key, '') FROM Users WHERE id = $1",
+		userID).Scan(&publicKey)
+	if err != nil || publicKey == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "E2EE not configured"})
+		return
+	}
+
+	hash := sha256.Sum256([]byte(publicKey))
+	fingerprint := hex.EncodeToString(hash[:])
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"fingerprint": fingerprint,
+	})
+}
+
+func GetUserFingerprintHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	_, _, err := GetUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		return
+	}
+
+	email := r.URL.Query().Get("email")
+	if email == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Email parameter is required"})
+		return
+	}
+
+	if !validation.ValidateEmail(email) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid email format"})
+		return
+	}
+
+	ctxDB, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	var publicKey string
+	err = ctx.DB.QueryRowContext(ctxDB,
+		"SELECT COALESCE(e2ee_public_key, '') FROM Users WHERE email = $1",
+		strings.ToLower(email)).Scan(&publicKey)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "User not found"})
+			return
+		}
+		log.Printf("Failed to get public key for fingerprint: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve fingerprint"})
+		return
+	}
+
+	if publicKey == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "User does not have E2EE configured"})
+		return
+	}
+
+	hash := sha256.Sum256([]byte(publicKey))
+	fingerprint := hex.EncodeToString(hash[:])
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"email":       strings.ToLower(email),
+		"fingerprint": fingerprint,
+	})
 }
