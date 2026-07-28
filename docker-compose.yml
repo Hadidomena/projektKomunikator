@@ -51,8 +51,8 @@ services:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
-    ports:
-      - "5432:5432"
+    expose:
+      - "5432"
     volumes:
       - ./sql-database/init.sql:/docker-entrypoint-initdb.d/10-init.sql
       - postgres_data:/var/lib/postgresql/data
