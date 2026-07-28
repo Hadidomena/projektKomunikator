@@ -81,6 +81,29 @@ func TestValidateToken_Expired(t *testing.T) {
 	}
 }
 
+func TestHashToken(t *testing.T) {
+	token := "test-reset-token-123"
+	hash1 := HashToken(token)
+	hash2 := HashToken(token)
+
+	if hash1 == "" {
+		t.Error("Hash should not be empty")
+	}
+
+	if hash1 != hash2 {
+		t.Error("Hash should be deterministic")
+	}
+
+	if hash1 == token {
+		t.Error("Hash should not equal the original token")
+	}
+
+	hash3 := HashToken("different-token")
+	if hash1 == hash3 {
+		t.Error("Different tokens should produce different hashes")
+	}
+}
+
 func TestValidateToken_Invalid(t *testing.T) {
 	token, _ := GenerateResetToken(1)
 
