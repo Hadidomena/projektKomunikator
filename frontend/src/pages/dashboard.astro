@@ -6,9 +6,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width" />
   <title>Dashboard - Communicator</title>
-  <!-- Markdown rendering with sanitization -->
-  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js" integrity="sha384-odPBjvtXVM/5hOYIr3A1dB+flh0c3wAT3bSesIOqEGmyUA4JoKf/YTWy0XKOYAY7" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js" integrity="sha384-cwS6YdhLI7XS60eoDiC+egV0qHp8zI+Cms46R0nbn8JrmoAzV9uFL60etMZhAnSu" crossorigin="anonymous"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; }
@@ -102,7 +101,6 @@
   </div>
 
   <div class="container">
-    <!-- Compose Message -->
     <div class="compose-section">
       <h2>✉️ Send Message</h2>
       <form id="composeForm">
@@ -119,7 +117,7 @@
           <div class="file-upload" id="fileUpload">
             <input type="file" id="fileInput" multiple hidden />
             📎 Click or drag files here to attach<br>
-            <small>Max 10MB per file</small>
+            <small>Max 25MB per file</small>
           </div>
           <div class="file-list" id="fileList"></div>
         </div>
@@ -127,7 +125,6 @@
       </form>
     </div>
 
-    <!-- Messages -->
     <div class="messages-section">
       <h2>📬 Messages</h2>
       <div class="tabs">
@@ -138,7 +135,6 @@
     </div>
   </div>
 
-  <!-- Message Detail Modal -->
   <div class="modal" id="messageModal">
     <div class="modal-content">
       <div class="modal-header">
@@ -157,8 +153,7 @@
     let currentFiles: File[] = [];
     let currentTab = 'inbox';
     let csrfToken = '';
-    
-    // E2EE state
+
     let myPublicKey: string | null = null;
     let myPrivateKey: CryptoKey | null = null;
     let e2eeReady = false;
@@ -180,7 +175,7 @@
           console.error('Markdown parse error:', parseError);
           return escapeHtml(content);
         }
-        
+
         const cleanHtml = DOMPurify.sanitize(rawHtml, {
           ALLOWED_TAGS: [
             'p', 'br', 'strong', 'em', 'b', 'i', 'u', 's', 'strike', 'del',
@@ -209,7 +204,7 @@
           DATA_URI_TAGS: [],
           USE_PROFILES: { html: true }
         });
-        
+
         const secureHtml = cleanHtml.replace(
           /<a\s+href="([^"]+)"([^>]*)>/gi,
           (match, href, rest) => {
@@ -219,14 +214,14 @@
             return `<a href="${href}" target="_blank" rel="noopener noreferrer nofollow"${rest}>`;
           }
         );
-        
+
         return secureHtml;
       } catch (error) {
         console.error('Markdown rendering error:', error);
         return escapeHtml(content);
       }
     }
-    
+
     function escapeHtml(text: string): string {
       const div = document.createElement('div');
       div.textContent = text;
@@ -242,11 +237,11 @@
     }
 
     document.getElementById('userEmail')!.textContent = userEmail;
-    
+
     // ==================== E2EE CRYPTOGRAPHIC FUNCTIONS ====================
-    
+
     let e2eePepper: string = '';
-    
+
     async function fetchE2EEConfig(): Promise<void> {
       try {
         const response = await fetch('/api/e2ee/config', {
@@ -260,7 +255,7 @@
         console.error('Failed to fetch E2EE config:', error);
       }
     }
-    
+
     function base64ToArrayBuffer(base64: string): ArrayBuffer {
       const binaryString = atob(base64);
       const bytes = new Uint8Array(binaryString.length);
@@ -269,7 +264,7 @@
       }
       return bytes.buffer;
     }
-    
+
     function arrayBufferToBase64(buffer: ArrayBuffer): string {
       const bytes = new Uint8Array(buffer);
       let binary = '';
@@ -278,7 +273,7 @@
       }
       return btoa(binary);
     }
-    
+
     async function importPublicKey(publicKeyB64: string): Promise<CryptoKey> {
       const keyData = base64ToArrayBuffer(publicKeyB64);
       return crypto.subtle.importKey(
@@ -289,7 +284,7 @@
         []
       );
     }
-    
+
     async function deriveSharedSecret(privateKey: CryptoKey, publicKey: CryptoKey): Promise<ArrayBuffer> {
       return crypto.subtle.deriveBits(
         { name: 'X25519', public: publicKey },
@@ -297,7 +292,7 @@
         256
       );
     }
-    
+
     async function deriveMessageKey(sharedSecret: ArrayBuffer, info: string, saltBuffer: ArrayBuffer): Promise<CryptoKey> {
       const baseKey = await crypto.subtle.importKey(
         'raw',
@@ -306,7 +301,7 @@
         false,
         ['deriveKey']
       );
-      
+
       const infoWithPepper = info + e2eePepper;
       const encoder = new TextEncoder();
       return crypto.subtle.deriveKey(
@@ -322,37 +317,37 @@
         ['encrypt', 'decrypt']
       );
     }
-    
+
     async function encryptMessage(plaintext: string, key: CryptoKey): Promise<{ ciphertext: string, nonce: string }> {
       const encoder = new TextEncoder();
       const nonce = crypto.getRandomValues(new Uint8Array(12));
-      
+
       const encrypted = await crypto.subtle.encrypt(
         { name: 'AES-GCM', iv: nonce },
         key,
         encoder.encode(plaintext)
       );
-      
+
       return {
         ciphertext: arrayBufferToBase64(encrypted),
         nonce: arrayBufferToBase64(nonce.buffer)
       };
     }
-    
+
     async function decryptMessage(ciphertextB64: string, nonceB64: string, key: CryptoKey): Promise<string> {
       const ciphertext = base64ToArrayBuffer(ciphertextB64);
       const nonce = base64ToArrayBuffer(nonceB64);
-      
+
       const decrypted = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: nonce },
         key,
         ciphertext
       );
-      
+
       const decoder = new TextDecoder();
       return decoder.decode(decrypted);
     }
-    
+
     async function getReceiverPublicKey(receiverEmail: string): Promise<string | null> {
       try {
         const response = await fetch(`${API_URL}/api/user/public-key?email=${encodeURIComponent(receiverEmail)}`, {
@@ -367,7 +362,7 @@
       }
       return null;
     }
-    
+
       async function e2eeEncryptMessage(content: string, receiverPublicKeyB64: string): Promise<{
       encryptedContent: string,
       nonce: string,
@@ -376,50 +371,50 @@
       if (!myPrivateKey || !myPublicKey) {
         throw new Error('Sender keys not available');
       }
-      
+
       const receiverPublicKey = await importPublicKey(receiverPublicKeyB64);
-      
+
       const sharedSecret = await deriveSharedSecret(myPrivateKey, receiverPublicKey);
       const sortedKeys = [myPublicKey, receiverPublicKeyB64].sort().join('');
       const saltData = new TextEncoder().encode(sortedKeys);
       const saltHash = await crypto.subtle.digest('SHA-256', saltData);
-      
+
       const messageKey = await deriveMessageKey(sharedSecret, 'message-encryption', saltHash);
-      
+
       const { ciphertext, nonce } = await encryptMessage(content, messageKey);
-      
+
       return {
         encryptedContent: ciphertext,
         nonce: nonce,
-        senderPublicKey: myPublicKey  
+        senderPublicKey: myPublicKey
       };
     }
-    
+
     async function e2eeDecryptMessage(
-      encryptedContent: string, 
+      encryptedContent: string,
       nonce: string,
       otherPartyPublicKeyB64: string
     ): Promise<string> {
       if (!myPrivateKey || !myPublicKey) {
         throw new Error('Private key not available');
       }
-      
+
       const otherPartyPublicKey = await importPublicKey(otherPartyPublicKeyB64);
       const sharedSecret = await deriveSharedSecret(myPrivateKey, otherPartyPublicKey);
       const sortedKeys = [myPublicKey, otherPartyPublicKeyB64].sort().join('');
       const saltData = new TextEncoder().encode(sortedKeys);
       const saltHash = await crypto.subtle.digest('SHA-256', saltData);
-      
+
       const messageKey = await deriveMessageKey(sharedSecret, 'message-encryption', saltHash);
       return decryptMessage(encryptedContent, nonce, messageKey);
     }
-    
+
     async function initializeE2EE() {
       await fetchE2EEConfig();
-      
+
       myPublicKey = localStorage.getItem('e2ee_public_key');
       const privateKeyB64 = sessionStorage.getItem('e2ee_private_key_pkcs8');
-      
+
       if (myPublicKey && privateKeyB64) {
         try {
           const privateKeyPkcs8 = base64ToArrayBuffer(privateKeyB64);
@@ -430,7 +425,7 @@
             false,
             ['deriveBits']
           );
-          
+
           e2eeReady = true;
           console.log('E2EE initialized successfully');
         } catch (error) {
@@ -444,9 +439,9 @@
         e2eeReady = false;
       }
     }
-    
+
     // ==================== END E2EE FUNCTIONS ====================
-    
+
     async function parseMessageContent(rawContent: string, otherPartyPublicKey: string): Promise<{ content: string, attachments: any[], encrypted: boolean }> {
       try {
         let parsed = JSON.parse(rawContent);
@@ -461,7 +456,7 @@
           } catch {
           }
         }
-        
+
         if (parsed.encrypted && parsed.ciphertext && parsed.nonce) {
           if (!otherPartyPublicKey) {
             return {
@@ -470,7 +465,7 @@
               encrypted: true
             };
           }
-          
+
           if (!e2eeReady) {
             return {
               content: '[🔒 Wiadomość zaszyfrowana - odblokuj E2EE aby odszyfrować]',
@@ -478,7 +473,7 @@
               encrypted: true
             };
           }
-          
+
           try {
             const decryptedPayload = await e2eeDecryptMessage(parsed.ciphertext, parsed.nonce, otherPartyPublicKey);
             const decryptedData = JSON.parse(decryptedPayload);
@@ -496,7 +491,7 @@
             };
           }
         }
-        
+
         if (parsed.content !== undefined && typeof parsed.content === 'string' && !parsed.encrypted) {
           return {
             content: parsed.content,
@@ -504,7 +499,7 @@
             encrypted: false
           };
         }
-        
+
         return {
           content: rawContent,
           attachments: [],
@@ -519,7 +514,6 @@
       }
     }
 
-    // Logout
     document.getElementById('logoutBtn')!.addEventListener('click', () => {
       localStorage.removeItem('jwt_token');
       localStorage.removeItem('user_email');
@@ -529,7 +523,6 @@
       window.location.href = '/login';
     });
 
-    // Get CSRF token
     async function getCsrfToken() {
       try {
         const response = await fetch(`${API_URL}/api/csrf-token`, {
@@ -622,7 +615,7 @@
           return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => {
-              const base64 = (reader.result as string).split(',')[1]; // Remove data:image/png;base64, prefix
+              const base64 = (reader.result as string).split(',')[1];
               resolve({
                 filename: file.name,
                 content_type: file.type || 'application/octet-stream',
@@ -648,7 +641,7 @@
         if (e2eeReady) {
           try {
             const receiverPublicKey = await getReceiverPublicKey(receiverEmail);
-            
+
             if (receiverPublicKey) {
               const encryptedData = await e2eeEncryptMessage(messagePayload, receiverPublicKey);
               finalContent = JSON.stringify({
@@ -656,7 +649,7 @@
                 ciphertext: encryptedData.encryptedContent,
                 nonce: encryptedData.nonce
               });
-              
+
               senderPublicKey = encryptedData.senderPublicKey;
               receiverPublicKeyForMsg = receiverPublicKey;
               encrypted = true;
@@ -682,7 +675,7 @@
             content: finalContent,
             csrf_token: csrfToken,
             dh_public_key: senderPublicKey,
-            receiver_public_key: receiverPublicKeyForMsg 
+            receiver_public_key: receiverPublicKeyForMsg
           })
         });
 
@@ -710,7 +703,6 @@
       }
     });
 
-    // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', (e) => {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -720,7 +712,6 @@
       });
     });
 
-    // Load messages
     async function loadMessages() {
       const container = document.getElementById('messageContainer')!;
       container.innerHTML = '<div class="loading">Loading messages...</div>';
@@ -748,14 +739,14 @@
           const messageItem = document.createElement('div');
           messageItem.className = `message-item ${!msg.is_read && currentTab === 'inbox' ? 'unread' : ''}`;
           messageItem.setAttribute('data-message-id', msg.id);
-          
+
           const fromEmail = currentTab === 'inbox' ? msg.sender_email : msg.receiver_email;
-          
+
           let preview = '[Encrypted message]';
           let isEncrypted = false;
           try {
-            const keyForDecryption = currentTab === 'inbox' 
-              ? (msg.dh_public_key || '') 
+            const keyForDecryption = currentTab === 'inbox'
+              ? (msg.dh_public_key || '')
               : (msg.receiver_public_key || '');
             const parsed = await parseMessageContent(msg.content, keyForDecryption);
             preview = parsed.content.length > 100 ? parsed.content.substring(0, 100) + '...' : parsed.content;
@@ -763,7 +754,7 @@
           } catch (e) {
             preview = msg.content.length > 100 ? msg.content.substring(0, 100) + '...' : msg.content;
           }
-          
+
           messageItem.innerHTML = `
             <div class="message-header">
               <span class="message-from">${escapeHtml(currentTab === 'inbox' ? 'From' : 'To')}: ${escapeHtml(fromEmail)} ${isEncrypted ? '🔒' : ''}</span>
@@ -771,7 +762,7 @@
             </div>
             <div class="message-preview">${escapeHtml(preview)}</div>
           `;
-          
+
           messageItem.addEventListener('click', () => openMessage(msg.id));
           messageList.appendChild(messageItem);
         }
@@ -784,7 +775,7 @@
     async function openMessage(messageId: number) {
       const modal = document.getElementById('messageModal')!;
       const detail = document.getElementById('messageDetail')!;
-      
+
       modal.classList.add('active');
       detail.innerHTML = '<div class="loading">Decrypting message...</div>';
 
@@ -801,16 +792,16 @@
           markMessageAsRead(messageId);
         }
 
-        const keyForDecryption = currentTab === 'inbox' 
-          ? (msg.dh_public_key || '') 
+        const keyForDecryption = currentTab === 'inbox'
+          ? (msg.dh_public_key || '')
           : (msg.receiver_public_key || '');
-        
+
         const parsedContent = await parseMessageContent(msg.content, keyForDecryption);
-        console.log('Parsed content:', { 
+        console.log('Parsed content:', {
           content: parsedContent.content?.substring(0, 50),
           attachmentsCount: parsedContent.attachments?.length,
           attachments: parsedContent.attachments?.map((a: any) => ({ filename: a.filename, hasData: !!a.data })),
-          encrypted: parsedContent.encrypted 
+          encrypted: parsedContent.encrypted
         });
         const messageContent = parsedContent.content;
         const attachments = parsedContent.attachments;
@@ -851,7 +842,7 @@
             </div>
           </div>
         `;
-        
+
         const contentDiv = detail.querySelector('.content');
         if (contentDiv) {
           contentDiv.innerHTML = renderMarkdown(messageContent);
@@ -869,17 +860,17 @@
           alert('Attachment not found');
           return;
         }
-        
+
         const att = attachments[index];
         const binaryString = atob(att.data);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
-        
+
         const blob = new Blob([bytes], { type: att.content_type });
         const url = URL.createObjectURL(blob);
-        
+
         const a = document.createElement('a');
         a.href = url;
         a.download = att.filename;
@@ -962,7 +953,7 @@
         console.warn('⚠️ E2EE not available - please re-login to enable encryption');
       }
     }
-    
+
     initialize();
   </script>
 </body>
