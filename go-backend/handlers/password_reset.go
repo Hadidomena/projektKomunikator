@@ -55,15 +55,7 @@ func PasswordResetRequestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Hash token before storing in database (like passwords)
-	hashedToken, err := cryptography.HashPassword(resetToken.Token)
-	if err != nil {
-		log.Printf("Error hashing reset token: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to process request"})
-		return
-	}
+	hashedToken := password_reset.HashToken(resetToken.Token)
 
 	_, err = ctx.DB.Exec(`
 		INSERT INTO PasswordResetTokens (user_id, token, expires_at)
@@ -113,56 +105,21 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Retrieve all non-expired, unused tokens and verify by comparing hashes
-	rows, err := ctx.DB.Query(`
-		SELECT user_id, token, expires_at, used, created_at
+	hashedToken := password_reset.HashToken(req.Token)
+
+	var storedToken password_reset.ResetToken
+	err := ctx.DB.QueryRow(`
+		SELECT user_id, expires_at, used, created_at
 		FROM PasswordResetTokens
-		WHERE used = FALSE AND expires_at > NOW()
-	`)
+		WHERE token = $1 AND used = FALSE AND expires_at > NOW()
+	`, hashedToken).Scan(&storedToken.UserID, &storedToken.ExpiresAt, &storedToken.Used, &storedToken.CreatedAt)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid or expired token"})
 		return
 	}
-	defer rows.Close()
-
-	var storedToken password_reset.ResetToken
-	var hashedToken string
-	found := false
-
-	// Compare provided token with hashed tokens in database
-	for rows.Next() {
-		if err := rows.Scan(&storedToken.UserID, &hashedToken, &storedToken.ExpiresAt, &storedToken.Used, &storedToken.CreatedAt); err != nil {
-			continue
-		}
-
-		// Verify token hash (like password verification)
-		match, err := cryptography.VerifyPassword(req.Token, hashedToken)
-		if err != nil {
-			continue
-		}
-
-		if match {
-			storedToken.Token = req.Token
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid or expired token"})
-		return
-	}
-
-	if err := password_reset.ValidateToken(req.Token, &storedToken); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid or expired token"})
-		return
-	}
+	storedToken.Token = req.Token
 
 	hashedPassword, err := cryptography.HashPassword(req.NewPassword)
 	if err != nil {
@@ -182,7 +139,6 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mark token as used by hashing it again with a timestamp (prevents reuse)
 	_, err = ctx.DB.Exec(`UPDATE PasswordResetTokens SET used = TRUE, used_at = $1 WHERE user_id = $2 AND token = $3`,
 		time.Now(), storedToken.UserID, hashedToken)
 	if err != nil {
