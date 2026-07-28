@@ -7,9 +7,6 @@ CREATE TABLE Users (
     e2ee_public_key TEXT,
     e2ee_private_key_encrypted TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    is_blocked BOOLEAN DEFAULT FALSE,
-    failed_login_attempts INTEGER DEFAULT 0,
-    locked_until TIMESTAMP WITH TIME ZONE,
     totp_secret TEXT,
     totp_enabled BOOLEAN DEFAULT FALSE,
     totp_verified_at TIMESTAMP WITH TIME ZONE
@@ -26,8 +23,6 @@ CREATE TABLE Messages (
     encrypted_key TEXT,
     message_signature TEXT,
     dh_public_key TEXT,
-    message_number INTEGER,
-    previous_chain_length INTEGER,
     is_read BOOLEAN DEFAULT FALSE,
     is_deleted_by_sender BOOLEAN DEFAULT FALSE,
     is_deleted_by_receiver BOOLEAN DEFAULT FALSE,
