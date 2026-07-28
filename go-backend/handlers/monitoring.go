@@ -11,6 +11,13 @@ import (
 	"github.com/Hadidomena/projektKomunikator/login_monitoring"
 )
 
+type contextKey string
+
+const (
+	ContextKeyUserID    contextKey = "userID"
+	ContextKeyUserEmail contextKey = "userEmail"
+)
+
 func GetLoginHistoryHandler(w http.ResponseWriter, r *http.Request, userID int, userEmail string) {
 	history, err := login_monitoring.GetLoginHistory(ctx.DB, userID, 20)
 	if err != nil {
@@ -71,12 +78,12 @@ func HoneypotStatsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetUserFromContext(r *http.Request) (int, string, error) {
-	userID, ok := r.Context().Value("userID").(int)
+	userID, ok := r.Context().Value(ContextKeyUserID).(int)
 	if !ok {
 		return 0, "", fmt.Errorf("user ID not found in context")
 	}
 
-	userEmail, ok := r.Context().Value("userEmail").(string)
+	userEmail, ok := r.Context().Value(ContextKeyUserEmail).(string)
 	if !ok {
 		return 0, "", fmt.Errorf("user email not found in context")
 	}
