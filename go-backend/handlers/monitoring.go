@@ -48,6 +48,28 @@ func GetHoneypotStatsHandler(w http.ResponseWriter, r *http.Request, userID int,
 	json.NewEncoder(w).Encode(stats)
 }
 
+func LoginHistoryHandler(w http.ResponseWriter, r *http.Request) {
+	userID, userEmail, err := GetUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		return
+	}
+	GetLoginHistoryHandler(w, r, userID, userEmail)
+}
+
+func HoneypotStatsHandler(w http.ResponseWriter, r *http.Request) {
+	userID, userEmail, err := GetUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		return
+	}
+	GetHoneypotStatsHandler(w, r, userID, userEmail)
+}
+
 func GetUserFromContext(r *http.Request) (int, string, error) {
 	userID, ok := r.Context().Value("userID").(int)
 	if !ok {
