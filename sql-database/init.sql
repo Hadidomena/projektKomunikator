@@ -6,6 +6,7 @@ CREATE TABLE Users (
     password_hash TEXT NOT NULL,
     e2ee_public_key TEXT,
     e2ee_private_key_encrypted TEXT,
+    is_admin BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     totp_secret TEXT,
     totp_enabled BOOLEAN DEFAULT FALSE,
