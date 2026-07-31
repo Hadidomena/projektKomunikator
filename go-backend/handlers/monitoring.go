@@ -11,6 +11,15 @@ import (
 	"github.com/Hadidomena/projektKomunikator/login_monitoring"
 )
 
+func IsAdmin(userID int) (bool, error) {
+	var isAdmin bool
+	err := ctx.DB.QueryRow("SELECT is_admin FROM Users WHERE id = $1", userID).Scan(&isAdmin)
+	if err != nil {
+		return false, err
+	}
+	return isAdmin, nil
+}
+
 type contextKey string
 
 const (
@@ -74,6 +83,15 @@ func HoneypotStatsHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
 		return
 	}
+
+	admin, err := IsAdmin(userID)
+	if err != nil || !admin {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Admin access required"})
+		return
+	}
+
 	GetHoneypotStatsHandler(w, r, userID, userEmail)
 }
 
