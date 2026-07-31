@@ -335,9 +335,11 @@ func TestUpdateUserPublicKeyHandler_Unauthenticated(t *testing.T) {
 }
 
 func TestUpdateUserPublicKeyHandler_MissingKey(t *testing.T) {
-	handlers.Initialize(nil, nil, nil, "")
+	csrfStore := csrf.NewTokenStore()
+	token, _ := csrfStore.CreateToken("test@example.com", 3600)
+	handlers.Initialize(nil, csrfStore, nil, "")
 
-	body, _ := json.Marshal(map[string]string{})
+	body, _ := json.Marshal(map[string]string{"csrf_token": token})
 	r := httptest.NewRequest("POST", "/api/user/update-public-key", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	ctx := context.WithValue(r.Context(), "userID", 1)
