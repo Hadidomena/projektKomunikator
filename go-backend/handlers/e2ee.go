@@ -158,7 +158,7 @@ func UpdateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, err := GetUserFromContext(r)
+	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -168,6 +168,7 @@ func UpdateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		E2EEPublicKey string `json:"e2ee_public_key"`
+		CSRFToken     string `json:"csrf_token"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -181,6 +182,13 @@ func UpdateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Public key is required"})
+		return
+	}
+
+	if !ctx.CSRFStore.ValidateToken(userEmail, req.CSRFToken) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
 		return
 	}
 
