@@ -277,6 +277,59 @@ func TOTPDisableHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	verificationCode := req.Code
+	if verificationCode == "" {
+		verificationCode = req.TOTPCode
+	}
+	if verificationCode == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "TOTP code is required to disable 2FA"})
+		return
+	}
+
+	var encryptedTotpSecret string
+	err = ctx.DB.QueryRow(`SELECT totp_secret FROM Users WHERE id = $1`, userID).Scan(&encryptedTotpSecret)
+	if err != nil {
+		log.Printf("Failed to retrieve TOTP secret for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to disable 2FA"})
+		return
+	}
+
+	if encryptedTotpSecret == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "2FA not enabled"})
+		return
+	}
+
+	totpSecret, err := cryptography.DecryptSensitiveData(encryptedTotpSecret)
+	if err != nil {
+		log.Printf("Failed to decrypt TOTP secret for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to disable 2FA"})
+		return
+	}
+
+	valid, err := totp.ValidateTOTP(totpSecret, verificationCode, totp.DefaultConfig())
+	if err != nil {
+		log.Printf("Failed to validate TOTP for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Validation failed"})
+		return
+	}
+
+	if !valid {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid TOTP code"})
+		return
+	}
+
 	_, err = ctx.DB.Exec(`UPDATE Users SET totp_enabled = FALSE, totp_secret = NULL WHERE id = $1`, userID)
 	if err != nil {
 		log.Printf("Failed to disable 2FA for user %d: %v", userID, err)
