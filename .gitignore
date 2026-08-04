@@ -3,3 +3,7 @@ tmp/
 *.log
 .env
 .astro/
+
+# Real TLS certificates (only .example files are tracked)
+nginx/ssl/cert.pem
+nginx/ssl/key.pem
