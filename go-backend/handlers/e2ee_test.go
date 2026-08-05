@@ -16,8 +16,8 @@ func TestE2EEConfigHandler(t *testing.T) {
 	handlers.Initialize(nil, csrfStore, nil, "test-e2ee-pepper")
 
 	r := httptest.NewRequest("GET", "/api/e2ee/config", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -54,8 +54,8 @@ func TestE2EEConfigHandler_WrongMethod(t *testing.T) {
 	handlers.Initialize(nil, nil, nil, "test-pepper")
 
 	r := httptest.NewRequest("POST", "/api/e2ee/config", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -71,8 +71,8 @@ func TestCSRFTokenHandler(t *testing.T) {
 	handlers.Initialize(nil, csrfStore, nil, "test-pepper")
 
 	r := httptest.NewRequest("GET", "/api/csrf-token", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -112,8 +112,8 @@ func TestCSRFTokenHandler_WrongMethod(t *testing.T) {
 	handlers.Initialize(nil, csrfStore, nil, "test-pepper")
 
 	r := httptest.NewRequest("POST", "/api/csrf-token", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 

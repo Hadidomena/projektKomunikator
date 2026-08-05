@@ -29,8 +29,8 @@ func TestTOTPStatusHandler_WrongMethod(t *testing.T) {
 	handlers.Initialize(nil, nil, nil, "")
 
 	r := httptest.NewRequest("POST", "/api/2fa/status", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -57,8 +57,8 @@ func TestTOTPStatusHandler_Enabled(t *testing.T) {
 		WillReturnRows(rows)
 
 	r := httptest.NewRequest("GET", "/api/2fa/status", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -96,8 +96,8 @@ func TestTOTPStatusHandler_SetupInProgress(t *testing.T) {
 		WillReturnRows(rows)
 
 	r := httptest.NewRequest("GET", "/api/2fa/status", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -143,8 +143,8 @@ func TestTOTPSetupHandler_MissingPassword(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{})
 	r := httptest.NewRequest("POST", "/api/2fa/setup", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 

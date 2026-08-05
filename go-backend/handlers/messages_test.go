@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Hadidomena/projektKomunikator/csrf"
@@ -34,7 +35,7 @@ func TestSendMessageHandler_Unauthenticated(t *testing.T) {
 
 func TestSendMessageHandler_MissingReceiver(t *testing.T) {
 	csrfStore := csrf.NewTokenStore()
-	token, _ := csrfStore.CreateToken("sender@test.com", 3600)
+	token, _ := csrfStore.CreateToken("sender@test.com", time.Hour)
 	handlers.Initialize(nil, csrfStore, nil, "")
 
 	body, _ := json.Marshal(map[string]string{
@@ -43,8 +44,8 @@ func TestSendMessageHandler_MissingReceiver(t *testing.T) {
 	})
 	r := httptest.NewRequest("POST", "/api/messages/send", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "sender@test.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "sender@test.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -59,8 +60,8 @@ func TestSendMessageHandler_WrongMethod(t *testing.T) {
 	handlers.Initialize(nil, nil, nil, "")
 
 	r := httptest.NewRequest("GET", "/api/messages/send", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -114,8 +115,8 @@ func TestGetMessageHandler_MissingID(t *testing.T) {
 	handlers.Initialize(nil, nil, nil, "")
 
 	r := httptest.NewRequest("GET", "/api/messages/get", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -130,8 +131,8 @@ func TestGetMessageHandler_InvalidID(t *testing.T) {
 	handlers.Initialize(nil, nil, nil, "")
 
 	r := httptest.NewRequest("GET", "/api/messages/get?id=abc", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -161,8 +162,8 @@ func TestMarkMessageAsReadHandler_WrongMethod(t *testing.T) {
 	handlers.Initialize(nil, nil, nil, "")
 
 	r := httptest.NewRequest("GET", "/api/messages/mark-read", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -179,8 +180,8 @@ func TestMarkMessageAsReadHandler_InvalidMessageID(t *testing.T) {
 	body, _ := json.Marshal(map[string]int{"message_id": 0})
 	r := httptest.NewRequest("PUT", "/api/messages/mark-read", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -210,8 +211,8 @@ func TestDeleteMessageHandler_WrongMethod(t *testing.T) {
 	handlers.Initialize(nil, nil, nil, "")
 
 	r := httptest.NewRequest("GET", "/api/messages/delete", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -228,8 +229,8 @@ func TestDeleteMessageHandler_InvalidMessageID(t *testing.T) {
 	body, _ := json.Marshal(map[string]int{"message_id": -1})
 	r := httptest.NewRequest("DELETE", "/api/messages/delete", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -248,7 +249,7 @@ func TestSendMessageHandler_ReceiverNotFound(t *testing.T) {
 	defer db.Close()
 
 	csrfStore := csrf.NewTokenStore()
-	token, _ := csrfStore.CreateToken("sender@test.com", 3600)
+	token, _ := csrfStore.CreateToken("sender@test.com", time.Hour)
 	handlers.Initialize(db, csrfStore, nil, "")
 
 	mock.ExpectQuery("SELECT id, COALESCE\\(e2ee_public_key, ''\\) FROM Users WHERE email = \\$1").
@@ -262,8 +263,8 @@ func TestSendMessageHandler_ReceiverNotFound(t *testing.T) {
 	})
 	r := httptest.NewRequest("POST", "/api/messages/send", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "sender@test.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "sender@test.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -291,8 +292,8 @@ func TestGetUserPublicKeyHandler_MissingEmail(t *testing.T) {
 	handlers.Initialize(nil, nil, nil, "")
 
 	r := httptest.NewRequest("GET", "/api/user/public-key", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -307,8 +308,8 @@ func TestGetUserPublicKeyHandler_InvalidEmail(t *testing.T) {
 	handlers.Initialize(nil, nil, nil, "")
 
 	r := httptest.NewRequest("GET", "/api/user/public-key?email=invalid", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -336,14 +337,14 @@ func TestUpdateUserPublicKeyHandler_Unauthenticated(t *testing.T) {
 
 func TestUpdateUserPublicKeyHandler_MissingKey(t *testing.T) {
 	csrfStore := csrf.NewTokenStore()
-	token, _ := csrfStore.CreateToken("test@example.com", 3600)
+	token, _ := csrfStore.CreateToken("test@example.com", time.Hour)
 	handlers.Initialize(nil, csrfStore, nil, "")
 
 	body, _ := json.Marshal(map[string]string{"csrf_token": token})
 	r := httptest.NewRequest("POST", "/api/user/update-public-key", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
@@ -383,8 +384,8 @@ func TestGetE2EEKeysHandler_NoKeys(t *testing.T) {
 		WillReturnRows(rows)
 
 	r := httptest.NewRequest("GET", "/api/e2ee/keys", nil)
-	ctx := context.WithValue(r.Context(), "userID", 1)
-	ctx = context.WithValue(ctx, "userEmail", "test@example.com")
+	ctx := context.WithValue(r.Context(), handlers.ContextKeyUserID, 1)
+	ctx = context.WithValue(ctx, handlers.ContextKeyUserEmail, "test@example.com")
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 
