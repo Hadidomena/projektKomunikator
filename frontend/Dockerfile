@@ -3,8 +3,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install pnpm
-RUN npm install -g pnpm
+# Install pnpm (v9 is the last major compatible with Node 20)
+RUN npm install -g pnpm@9
 
 # Copy package definition and install dependencies
 COPY package.json pnpm-lock.yaml* ./

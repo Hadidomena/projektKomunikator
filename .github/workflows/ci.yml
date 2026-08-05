@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  GO_VERSION: "1.25.3"
+  GO_VERSION: "1.26.1"
   NODE_VERSION: "20"
 
 jobs:
@@ -66,7 +66,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: 9
       - name: Install dependencies
         run: pnpm install
       - name: Build
