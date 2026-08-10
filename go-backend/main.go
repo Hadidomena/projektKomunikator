@@ -67,6 +67,7 @@ func main() {
 	}
 	csrfStore = csrf.NewTokenStore()
 	loginTracker = validation.NewLoginAttemptTracker()
+	loginTracker.SetDB(db)
 
 	handlers.Initialize(db, csrfStore, loginTracker, e2eePepper)
 
