@@ -98,7 +98,7 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if passwordutils.IsViablePassword(req.NewPassword) == 0 {
+	if passwordutils.IsViablePassword(req.NewPassword) != 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Password does not meet requirements"})
