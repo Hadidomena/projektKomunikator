@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Hadidomena/projektKomunikator/cryptography"
+	"github.com/Hadidomena/projektKomunikator/honeypot"
 	jwt_auth "github.com/Hadidomena/projektKomunikator/jwt_auth"
 	"github.com/Hadidomena/projektKomunikator/totp"
 	"github.com/Hadidomena/projektKomunikator/validation"
@@ -27,9 +28,12 @@ type TOTPVerifyRequest struct {
 }
 
 type TOTPValidateRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Code     string `json:"totp_code"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	Code       string `json:"totp_code"`
+	Website    string `json:"website,omitempty"`     // Honeypot field 1
+	Phone      string `json:"phone,omitempty"`       // Honeypot field 2
+	MiddleName string `json:"middle_name,omitempty"` // Honeypot field 3
 }
 
 func TOTPStatusHandler(w http.ResponseWriter, r *http.Request) {
@@ -360,10 +364,70 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check honeypot fields - if any are filled, it's likely a bot
+	honeypotTriggered := honeypot.CheckHoneypot(req.Website) ||
+		honeypot.CheckHoneypot(req.Phone) ||
+		honeypot.CheckHoneypot(req.MiddleName)
+
+	if honeypotTriggered {
+		ip := GetClientIP(r)
+		honeypotValue := req.Website
+		if req.Phone != "" {
+			honeypotValue = req.Phone
+		} else if req.MiddleName != "" {
+			honeypotValue = req.MiddleName
+		}
+
+		honeypotAttempt := &honeypot.HoneypotAttempt{
+			IPAddress:     ip,
+			UserAgent:     r.UserAgent(),
+			HoneypotField: "login_honeypot",
+			HoneypotValue: honeypotValue,
+			SubmittedData: map[string]interface{}{
+				"email":       req.Email,
+				"website":     req.Website,
+				"phone":       req.Phone,
+				"middle_name": req.MiddleName,
+			},
+			Blocked: true,
+		}
+
+		honeypot.RecordHoneypotAttempt(ctx.DB, honeypotAttempt)
+		log.Printf("2FA login honeypot triggered from IP: %s, email: %s", ip, req.Email)
+
+		// Return fake success to confuse bots - with a small delay
+		time.Sleep(500 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
+		return
+	}
+
 	if !validation.ValidateEmail(req.Email) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid email format"})
+		return
+	}
+
+	emailAddr := strings.ToLower(req.Email)
+
+	isLocked, remainingTime, isBlocked := ctx.LoginTracker.CheckAccountStatus(emailAddr)
+
+	if isBlocked {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("account_blocked")})
+		return
+	}
+
+	if isLocked {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(ErrorResponse{
+			Message: validation.GetSanitizedError("account_locked"),
+		})
+		log.Printf("2FA login attempt for locked account: %s, remaining time: %v", emailAddr, remainingTime)
 		return
 	}
 
@@ -374,9 +438,20 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 	var encryptedTotpSecret string
 	var totpEnabled bool
 	var passwordHash string
-	err := ctx.DB.QueryRowContext(ctxDB, `SELECT id, password_hash, totp_secret, totp_enabled FROM Users WHERE email = $1`, strings.ToLower(req.Email)).
+	err := ctx.DB.QueryRowContext(ctxDB, `SELECT id, password_hash, totp_secret, totp_enabled FROM Users WHERE email = $1`, emailAddr).
 		Scan(&userID, &passwordHash, &encryptedTotpSecret, &totpEnabled)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			ip := GetClientIP(r)
+			ctx.LoginTracker.RecordFailedAttempt(emailAddr, ip)
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid credentials"})
+			return
+		}
+
+		log.Printf("Database error during 2FA login: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid credentials"})
@@ -384,7 +459,37 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	passwordValid, err := cryptography.VerifyPassword(req.Password, passwordHash)
-	if err != nil || !passwordValid {
+	if err != nil {
+		log.Printf("Error verifying password during 2FA login: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
+		return
+	}
+
+	if !passwordValid {
+		ip := GetClientIP(r)
+		isLocked, lockDuration, isBlocked, _ := ctx.LoginTracker.RecordFailedAttempt(emailAddr, ip)
+
+		log.Printf("Failed 2FA login attempt for user: %s from IP: %s", emailAddr, ip)
+
+		if isBlocked {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("account_blocked")})
+			return
+		}
+
+		if isLocked {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(ErrorResponse{
+				Message: validation.GetSanitizedError("account_locked"),
+			})
+			log.Printf("Account locked after failed 2FA login: %s, duration: %v", emailAddr, lockDuration)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid credentials"})
@@ -393,8 +498,8 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 
 	if !totpEnabled || encryptedTotpSecret == "" {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "2FA not enabled"})
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid credentials"})
 		return
 	}
 
@@ -417,13 +522,37 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !valid {
+		ip := GetClientIP(r)
+		isLocked, lockDuration, isBlocked, _ := ctx.LoginTracker.RecordFailedAttempt(emailAddr, ip)
+
+		log.Printf("Invalid 2FA code for user: %s from IP: %s", emailAddr, ip)
+
+		if isBlocked {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("account_blocked")})
+			return
+		}
+
+		if isLocked {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(ErrorResponse{
+				Message: validation.GetSanitizedError("account_locked"),
+			})
+			log.Printf("Account locked after invalid 2FA code: %s, duration: %v", emailAddr, lockDuration)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid 2FA code"})
 		return
 	}
 
-	token, err := jwt_auth.GenerateToken(userID, strings.ToLower(req.Email))
+	ctx.LoginTracker.ResetAttempts(emailAddr)
+
+	token, err := jwt_auth.GenerateToken(userID, emailAddr)
 	if err != nil {
 		log.Printf("Failed to generate JWT token: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -440,25 +569,22 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to get E2EE keys for user %d during 2FA login: %v", userID, err)
 	}
 
-	log.Printf("Successful 2FA login for user: %s", req.Email)
+	log.Printf("Successful 2FA login for user: %s", emailAddr)
 
 	response := map[string]interface{}{
 		"message":    "Login successful",
 		"token":      token,
 		"user_id":    userID,
-		"email":      strings.ToLower(req.Email),
+		"email":      emailAddr,
 		"expires_in": jwt_auth.GetTokenExpiration().Seconds(),
 	}
 
-	if publicKey != "" && privateKeyEncrypted != "" {
+	// Include E2EE keys if they exist
+	if publicKey != "" {
 		response["e2ee_public_key"] = publicKey
-		decryptedPrivateKey, err := cryptography.DecryptForUser(privateKeyEncrypted, req.Password, userID)
-		if err != nil {
-			log.Printf("Warning: Failed to decrypt E2EE private key for user %d during 2FA: %v", userID, err)
-			response["e2ee_private_key_encrypted"] = privateKeyEncrypted
-		} else {
-			response["e2ee_private_key"] = decryptedPrivateKey
-		}
+	}
+	if privateKeyEncrypted != "" {
+		response["e2ee_private_key_encrypted"] = privateKeyEncrypted
 	}
 
 	w.Header().Set("Content-Type", "application/json")

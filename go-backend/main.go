@@ -119,7 +119,8 @@ func main() {
 	conditionalRateLimiter := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/login") ||
 			strings.HasPrefix(r.URL.Path, "/api/register") ||
-			strings.HasPrefix(r.URL.Path, "/api/password-reset") {
+			strings.HasPrefix(r.URL.Path, "/api/password-reset") ||
+			strings.HasPrefix(r.URL.Path, "/api/2fa/validate") {
 			authLimiter.RateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				mux.ServeHTTP(w, r)
 			})).ServeHTTP(w, r)
