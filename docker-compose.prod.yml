@@ -25,7 +25,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.prod
     expose:
-      - "80"
+      - "4321"
     depends_on:
       - backend
     restart: unless-stopped
