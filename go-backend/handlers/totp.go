@@ -364,7 +364,6 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check honeypot fields - if any are filled, it's likely a bot
 	honeypotTriggered := honeypot.CheckHoneypot(req.Website) ||
 		honeypot.CheckHoneypot(req.Phone) ||
 		honeypot.CheckHoneypot(req.MiddleName)
@@ -395,7 +394,6 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 		honeypot.RecordHoneypotAttempt(ctx.DB, honeypotAttempt)
 		log.Printf("2FA login honeypot triggered from IP: %s, email: %s", ip, req.Email)
 
-		// Return fake success to confuse bots - with a small delay
 		time.Sleep(500 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -579,7 +577,6 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 		"expires_in": jwt_auth.GetTokenExpiration().Seconds(),
 	}
 
-	// Include E2EE keys if they exist
 	if publicKey != "" {
 		response["e2ee_public_key"] = publicKey
 	}
