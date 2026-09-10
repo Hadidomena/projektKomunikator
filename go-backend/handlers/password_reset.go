@@ -1,11 +1,11 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/Hadidomena/projektKomunikator/cryptography"
 	"github.com/Hadidomena/projektKomunikator/email"
@@ -107,19 +107,49 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 
 	hashedToken := password_reset.HashToken(req.Token)
 
-	var storedToken password_reset.ResetToken
-	err := ctx.DB.QueryRow(`
-		SELECT user_id, expires_at, used, created_at
-		FROM PasswordResetTokens
-		WHERE token = $1 AND used = FALSE AND expires_at > NOW()
-	`, hashedToken).Scan(&storedToken.UserID, &storedToken.ExpiresAt, &storedToken.Used, &storedToken.CreatedAt)
+	tx, err := ctx.DB.Begin()
 	if err != nil {
+		log.Printf("Error starting password reset transaction: %v", err)
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid or expired token"})
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to reset password"})
 		return
 	}
-	storedToken.Token = req.Token
+	defer tx.Rollback()
+
+	var userID int
+	err = tx.QueryRow(`
+		UPDATE PasswordResetTokens
+		SET used = TRUE, used_at = NOW()
+		WHERE token = $1 AND used = FALSE AND expires_at > NOW()
+		RETURNING user_id
+	`, hashedToken).Scan(&userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid or expired token"})
+			return
+		}
+		log.Printf("Error consuming reset token: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to reset password"})
+		return
+	}
+
+	_, err = tx.Exec(`
+		UPDATE PasswordResetTokens
+		SET used = TRUE, used_at = NOW()
+		WHERE user_id = $1 AND used = FALSE
+	`, userID)
+	if err != nil {
+		log.Printf("Error invalidating outstanding reset tokens: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to reset password"})
+		return
+	}
 
 	hashedPassword, err := cryptography.HashPassword(req.NewPassword)
 	if err != nil {
@@ -130,7 +160,9 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = ctx.DB.Exec(`UPDATE Users SET password_hash = $1 WHERE id = $2`, hashedPassword, storedToken.UserID)
+	_, err = tx.Exec(
+		`UPDATE Users SET password_hash = $1, failed_login_attempts = 0, locked_until = NULL, is_blocked = FALSE WHERE id = $2`,
+		hashedPassword, userID)
 	if err != nil {
 		log.Printf("Error updating password: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -139,10 +171,12 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = ctx.DB.Exec(`UPDATE PasswordResetTokens SET used = TRUE, used_at = $1 WHERE user_id = $2 AND token = $3`,
-		time.Now(), storedToken.UserID, hashedToken)
-	if err != nil {
-		log.Printf("Error marking token as used: %v", err)
+	if err := tx.Commit(); err != nil {
+		log.Printf("Error committing password reset: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to reset password"})
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")

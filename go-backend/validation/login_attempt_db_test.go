@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -27,7 +28,10 @@ func TestLoginAttemptTrackerDB_CheckAccountStatus_Unlocked(t *testing.T) {
 		WithArgs("user@test.com").
 		WillReturnRows(rows)
 
-	isLocked, _, isBlocked := tracker.CheckAccountStatus("user@test.com")
+	isLocked, _, isBlocked, err := tracker.CheckAccountStatus("user@test.com")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
 	if isLocked || isBlocked {
 		t.Errorf("Expected unlocked, got locked=%v blocked=%v", isLocked, isBlocked)
 	}
@@ -44,7 +48,10 @@ func TestLoginAttemptTrackerDB_CheckAccountStatus_Locked(t *testing.T) {
 		WithArgs("user@test.com").
 		WillReturnRows(rows)
 
-	isLocked, remaining, isBlocked := tracker.CheckAccountStatus("user@test.com")
+	isLocked, remaining, isBlocked, err := tracker.CheckAccountStatus("user@test.com")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
 	if !isLocked {
 		t.Error("Expected account to be locked")
 	}
@@ -67,9 +74,31 @@ func TestLoginAttemptTrackerDB_CheckAccountStatus_Blocked(t *testing.T) {
 		WithArgs("user@test.com").
 		WillReturnRows(rows)
 
-	isLocked, _, isBlocked := tracker.CheckAccountStatus("user@test.com")
+	isLocked, _, isBlocked, err := tracker.CheckAccountStatus("user@test.com")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
 	if !isLocked || !isBlocked {
 		t.Errorf("Expected locked+blocked, got locked=%v blocked=%v", isLocked, isBlocked)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Unmet expectations: %v", err)
+	}
+}
+
+func TestLoginAttemptTrackerDB_CheckAccountStatus_DBErrorFailsClosed(t *testing.T) {
+	mock, tracker := newDBTracker(t)
+
+	mock.ExpectQuery("SELECT is_blocked, locked_until FROM Users WHERE email = \\$1").
+		WithArgs("user@test.com").
+		WillReturnError(fmt.Errorf("db unavailable"))
+
+	isLocked, _, isBlocked, err := tracker.CheckAccountStatus("user@test.com")
+	if err == nil {
+		t.Error("Expected an error when the DB check fails")
+	}
+	if isLocked || isBlocked {
+		t.Errorf("Expected unknown state on DB error, got locked=%v blocked=%v", isLocked, isBlocked)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("Unmet expectations: %v", err)
@@ -79,13 +108,10 @@ func TestLoginAttemptTrackerDB_CheckAccountStatus_Blocked(t *testing.T) {
 func TestLoginAttemptTrackerDB_RecordFailedAttempt_Locks(t *testing.T) {
 	mock, tracker := newDBTracker(t)
 
-	rows := sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked", "locked_until"}).AddRow(0, false, nil)
-	mock.ExpectQuery("SELECT failed_login_attempts, is_blocked, locked_until FROM Users WHERE email = \\$1").
-		WithArgs("user@test.com").
+	rows := sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked"}).AddRow(1, false)
+	mock.ExpectQuery("UPDATE Users SET failed_login_attempts").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
 		WillReturnRows(rows)
-	mock.ExpectExec("UPDATE Users SET failed_login_attempts = \\$1, locked_until = \\$2 WHERE email = \\$3").
-		WithArgs(1, sqlmock.AnyArg(), "user@test.com").
-		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt("user@test.com", "192.168.1.1")
 	if err != nil {
@@ -108,13 +134,10 @@ func TestLoginAttemptTrackerDB_RecordFailedAttempt_Locks(t *testing.T) {
 func TestLoginAttemptTrackerDB_RecordFailedAttempt_ThreeAttempts(t *testing.T) {
 	mock, tracker := newDBTracker(t)
 
-	rows := sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked", "locked_until"}).AddRow(2, false, nil)
-	mock.ExpectQuery("SELECT failed_login_attempts, is_blocked, locked_until FROM Users WHERE email = \\$1").
-		WithArgs("user@test.com").
+	rows := sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked"}).AddRow(3, false)
+	mock.ExpectQuery("UPDATE Users SET failed_login_attempts").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
 		WillReturnRows(rows)
-	mock.ExpectExec("UPDATE Users SET failed_login_attempts = \\$1, locked_until = \\$2 WHERE email = \\$3").
-		WithArgs(3, sqlmock.AnyArg(), "user@test.com").
-		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	_, lockDuration, _, err := tracker.RecordFailedAttempt("user@test.com", "192.168.1.1")
 	if err != nil {
@@ -131,13 +154,10 @@ func TestLoginAttemptTrackerDB_RecordFailedAttempt_ThreeAttempts(t *testing.T) {
 func TestLoginAttemptTrackerDB_RecordFailedAttempt_Blocks(t *testing.T) {
 	mock, tracker := newDBTracker(t)
 
-	rows := sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked", "locked_until"}).AddRow(4, false, nil)
-	mock.ExpectQuery("SELECT failed_login_attempts, is_blocked, locked_until FROM Users WHERE email = \\$1").
-		WithArgs("user@test.com").
+	rows := sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked"}).AddRow(5, true)
+	mock.ExpectQuery("UPDATE Users SET failed_login_attempts").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
 		WillReturnRows(rows)
-	mock.ExpectExec("UPDATE Users SET failed_login_attempts = \\$1, is_blocked = TRUE, locked_until = NULL WHERE email = \\$2").
-		WithArgs(5, "user@test.com").
-		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt("user@test.com", "192.168.1.1")
 	if err == nil {
@@ -157,10 +177,9 @@ func TestLoginAttemptTrackerDB_RecordFailedAttempt_Blocks(t *testing.T) {
 func TestLoginAttemptTrackerDB_RecordFailedAttempt_AlreadyBlocked(t *testing.T) {
 	mock, tracker := newDBTracker(t)
 
-	rows := sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked", "locked_until"}).AddRow(5, true, nil)
-	mock.ExpectQuery("SELECT failed_login_attempts, is_blocked, locked_until FROM Users WHERE email = \\$1").
-		WithArgs("user@test.com").
-		WillReturnRows(rows)
+	mock.ExpectQuery("UPDATE Users SET failed_login_attempts").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
+		WillReturnRows(sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked"}))
 
 	isLocked, _, isBlocked, err := tracker.RecordFailedAttempt("user@test.com", "192.168.1.1")
 	if err == nil {

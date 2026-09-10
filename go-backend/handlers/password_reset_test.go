@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Hadidomena/projektKomunikator/cryptography"
@@ -161,9 +160,11 @@ func TestPasswordResetVerifyHandler_WeakPassword(t *testing.T) {
 
 func TestPasswordResetVerifyHandler_InvalidToken(t *testing.T) {
 	mock := setupPasswordResetTest(t)
-	mock.ExpectQuery("SELECT user_id, expires_at, used, created_at").
+	mock.ExpectBegin()
+	mock.ExpectQuery("UPDATE PasswordResetTokens").
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
 
 	w := postPasswordResetVerify(t, map[string]string{
 		"token":        "invalid-token",
@@ -180,17 +181,17 @@ func TestPasswordResetVerifyHandler_InvalidToken(t *testing.T) {
 
 func TestPasswordResetVerifyHandler_Success(t *testing.T) {
 	mock := setupPasswordResetTest(t)
-	rows := sqlmock.NewRows([]string{"user_id", "expires_at", "used", "created_at"}).
-		AddRow(1, time.Now().Add(time.Hour), false, time.Now())
-	mock.ExpectQuery("SELECT user_id, expires_at, used, created_at").
+	mock.ExpectBegin()
+	mock.ExpectQuery("UPDATE PasswordResetTokens").
 		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(rows)
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(1))
+	mock.ExpectExec("UPDATE PasswordResetTokens").
+		WithArgs(1).
+		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("UPDATE Users SET password_hash").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), 1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("UPDATE PasswordResetTokens SET used").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
 	w := postPasswordResetVerify(t, map[string]string{
 		"token":        "valid-token",

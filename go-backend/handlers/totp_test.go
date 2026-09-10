@@ -159,8 +159,8 @@ func TestTOTPValidateHandler_InvalidEmail(t *testing.T) {
 	handlers.Initialize(nil, nil, nil, "")
 
 	body, _ := json.Marshal(map[string]string{
-		"email":    "invalid",
-		"password": "pass",
+		"email":     "invalid",
+		"password":  "pass",
 		"totp_code": "123456",
 	})
 	r := httptest.NewRequest("POST", "/api/2fa/validate", bytes.NewReader(body))

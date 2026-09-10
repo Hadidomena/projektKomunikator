@@ -23,6 +23,7 @@ type AccountStatus struct {
 type LoginAttemptTracker struct {
 	accounts map[string]*AccountStatus
 	mu       sync.RWMutex
+	dbMu     sync.RWMutex
 	db       *sql.DB
 }
 
@@ -33,18 +34,24 @@ func NewLoginAttemptTracker() *LoginAttemptTracker {
 }
 
 func (t *LoginAttemptTracker) SetDB(db *sql.DB) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.dbMu.Lock()
+	defer t.dbMu.Unlock()
 	t.db = db
 }
 
+func (t *LoginAttemptTracker) getDB() *sql.DB {
+	t.dbMu.RLock()
+	defer t.dbMu.RUnlock()
+	return t.db
+}
+
 func (t *LoginAttemptTracker) RecordFailedAttempt(email, ip string) (bool, time.Duration, bool, error) {
+	if db := t.getDB(); db != nil {
+		return recordFailedAttemptDB(db, email)
+	}
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
-
-	if t.db != nil {
-		return recordFailedAttemptDB(t.db, email)
-	}
 
 	if t.accounts[email] == nil {
 		t.accounts[email] = &AccountStatus{
@@ -96,41 +103,40 @@ func (t *LoginAttemptTracker) RecordFailedAttempt(email, ip string) (bool, time.
 	return isLocked, lockDuration, false, nil
 }
 
-func (t *LoginAttemptTracker) CheckAccountStatus(email string) (bool, time.Duration, bool) {
+func (t *LoginAttemptTracker) CheckAccountStatus(email string) (bool, time.Duration, bool, error) {
+	if db := t.getDB(); db != nil {
+		return checkAccountStatusDB(db, email)
+	}
+
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	if t.db != nil {
-		return checkAccountStatusDB(t.db, email)
-	}
-
 	status := t.accounts[email]
 	if status == nil {
-		return false, 0, false
+		return false, 0, false, nil
 	}
 
 	status.mu.RLock()
 	defer status.mu.RUnlock()
 
 	if status.IsBlocked {
-		return true, 0, true
+		return true, 0, true, nil
 	}
 
 	if time.Now().Before(status.LockedUntil) {
-		return true, time.Until(status.LockedUntil), false
+		return true, time.Until(status.LockedUntil), false, nil
 	}
 
-	return false, 0, false
+	return false, 0, false, nil
 }
 
-func (t *LoginAttemptTracker) ResetAttempts(email string) {
+func (t *LoginAttemptTracker) ResetAttempts(email string) error {
+	if db := t.getDB(); db != nil {
+		return resetAttemptsDB(db, email)
+	}
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
-
-	if t.db != nil {
-		resetAttemptsDB(t.db, email)
-		return
-	}
 
 	if t.accounts[email] != nil {
 		status := t.accounts[email]
@@ -140,9 +146,11 @@ func (t *LoginAttemptTracker) ResetAttempts(email string) {
 		status.FailedAttempts = make([]LoginAttempt, 0)
 		status.LockedUntil = time.Time{}
 	}
+
+	return nil
 }
 
-func checkAccountStatusDB(db *sql.DB, email string) (bool, time.Duration, bool) {
+func checkAccountStatusDB(db *sql.DB, email string) (bool, time.Duration, bool, error) {
 	var isBlocked bool
 	var lockedUntil sql.NullTime
 	err := db.QueryRow(
@@ -150,62 +158,72 @@ func checkAccountStatusDB(db *sql.DB, email string) (bool, time.Duration, bool) 
 		email,
 	).Scan(&isBlocked, &lockedUntil)
 	if err != nil {
-		return false, 0, false
-	}
-
-	if isBlocked {
-		return true, 0, true
-	}
-
-	if lockedUntil.Valid && time.Now().Before(lockedUntil.Time) {
-		return true, time.Until(lockedUntil.Time), false
-	}
-
-	return false, 0, false
-}
-
-func recordFailedAttemptDB(db *sql.DB, email string) (bool, time.Duration, bool, error) {
-	var attempts int
-	var isBlocked bool
-	var lockedUntil sql.NullTime
-	err := db.QueryRow(
-		"SELECT failed_login_attempts, is_blocked, locked_until FROM Users WHERE email = $1",
-		email,
-	).Scan(&attempts, &isBlocked, &lockedUntil)
-	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, 0, false, nil
+		}
 		return false, 0, false, err
 	}
 
 	if isBlocked {
-		return true, 0, true, fmt.Errorf("account is permanently blocked")
+		return true, 0, true, nil
 	}
 
-	attempts++
-	now := time.Now()
-	var lockDuration time.Duration
+	if lockedUntil.Valid && time.Now().Before(lockedUntil.Time) {
+		return true, time.Until(lockedUntil.Time), false, nil
+	}
 
-	switch {
-	case attempts >= 5:
-		db.Exec(
-			"UPDATE Users SET failed_login_attempts = $1, is_blocked = TRUE, locked_until = NULL WHERE email = $2",
-			attempts, email,
-		)
+	return false, 0, false, nil
+}
+
+func recordFailedAttemptDB(db *sql.DB, email string) (bool, time.Duration, bool, error) {
+	now := time.Now()
+
+	var attempts int
+	var isBlocked bool
+	err := db.QueryRow(`
+		UPDATE Users
+		SET failed_login_attempts = CASE
+				WHEN locked_until IS NULL OR locked_until <= $1 THEN 1
+				ELSE failed_login_attempts + 1
+			END,
+			locked_until = CASE
+				WHEN locked_until IS NULL OR locked_until <= $1 THEN $2
+				WHEN failed_login_attempts + 1 >= 5 THEN NULL
+				WHEN failed_login_attempts + 1 >= 3 THEN $3
+				ELSE $2
+			END,
+			is_blocked = CASE
+				WHEN NOT (locked_until IS NULL OR locked_until <= $1) AND failed_login_attempts + 1 >= 5 THEN TRUE
+				ELSE is_blocked
+			END
+		WHERE email = $4 AND is_blocked = FALSE
+		RETURNING failed_login_attempts, is_blocked`,
+		now, now.Add(1*time.Minute), now.Add(5*time.Minute), email,
+	).Scan(&attempts, &isBlocked)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return true, 0, true, fmt.Errorf("account is permanently blocked or does not exist")
+		}
+		return false, 0, false, err
+	}
+
+	if isBlocked {
 		return true, 0, true, fmt.Errorf("account permanently blocked after 5 failed attempts")
-	case attempts >= 3:
+	}
+
+	var lockDuration time.Duration
+	if attempts >= 3 {
 		lockDuration = 5 * time.Minute
-	default:
+	} else {
 		lockDuration = 1 * time.Minute
 	}
 
-	_, err = db.Exec(
-		"UPDATE Users SET failed_login_attempts = $1, locked_until = $2 WHERE email = $3",
-		attempts, now.Add(lockDuration), email,
-	)
-	return true, lockDuration, false, err
+	return true, lockDuration, false, nil
 }
 
-func resetAttemptsDB(db *sql.DB, email string) {
-	db.Exec("UPDATE Users SET failed_login_attempts = 0, locked_until = NULL WHERE email = $1", email)
+func resetAttemptsDB(db *sql.DB, email string) error {
+	_, err := db.Exec("UPDATE Users SET failed_login_attempts = 0, locked_until = NULL WHERE email = $1", email)
+	return err
 }
 
 func ValidateEmail(email string) bool {

@@ -14,6 +14,11 @@ import (
 	"github.com/Hadidomena/projektKomunikator/validation"
 )
 
+const (
+	maxMessageContentSize = 25 * 1024 * 1024
+	maxAttachmentSize     = 15 * 1024 * 1024
+)
+
 type PaginationMeta struct {
 	Page       int `json:"page"`
 	Limit      int `json:"limit"`
@@ -35,6 +40,16 @@ func parsePagination(r *http.Request) (int, int) {
 		}
 	}
 	return page, limit
+}
+
+func clampPage(page, totalPages int) int {
+	if page > totalPages {
+		if totalPages > 0 {
+			return totalPages
+		}
+		return 1
+	}
+	return page
 }
 
 type SendMessageRequest struct {
@@ -110,10 +125,19 @@ func SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.Content) > 25*1024*1024 {
+	for _, att := range req.Attachments {
+		if att.Size > maxAttachmentSize {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "Attachment too large (max 15MB)"})
+			return
+		}
+	}
+
+	if len(req.Content) > maxMessageContentSize {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message too long (max 15MB attachments)"})
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message payload too large (max 25MB)"})
 		return
 	}
 
@@ -200,7 +224,6 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	page, limit := parsePagination(r)
-	offset := (page - 1) * limit
 
 	ctxDB, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
@@ -218,13 +241,20 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	totalPages := int(math.Ceil(float64(total) / float64(limit)))
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	page = clampPage(page, totalPages)
+	offset := (page - 1) * limit
+
 	rows, err := ctx.DB.QueryContext(ctxDB, `
 		SELECT m.id, u.email, m.content, m.message_signature, m.is_read, m.created_at, m.read_at,
 		       COALESCE(m.dh_public_key, '')
 		FROM Messages m
 		JOIN Users u ON m.sender_id = u.id
 		WHERE m.receiver_id = $1 AND m.is_deleted_by_receiver = FALSE
-		ORDER BY m.created_at DESC
+		ORDER BY m.created_at DESC, m.id DESC
 		LIMIT $2 OFFSET $3
 	`, userID, limit, offset)
 	if err != nil {
@@ -259,7 +289,7 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"messages":   messages,
-		"pagination": PaginationMeta{Page: page, Limit: limit, Total: total, TotalPages: int(math.Ceil(float64(total) / float64(limit)))},
+		"pagination": PaginationMeta{Page: page, Limit: limit, Total: total, TotalPages: totalPages},
 	})
 }
 
@@ -278,7 +308,6 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	page, limit := parsePagination(r)
-	offset := (page - 1) * limit
 
 	ctxDB, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
@@ -296,13 +325,20 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	totalPages := int(math.Ceil(float64(total) / float64(limit)))
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	page = clampPage(page, totalPages)
+	offset := (page - 1) * limit
+
 	rows, err := ctx.DB.QueryContext(ctxDB, `
 		SELECT m.id, u.email, m.content, m.is_read, m.created_at, m.read_at,
 		       COALESCE(m.dh_public_key, ''), COALESCE(u.e2ee_public_key, '')
 		FROM Messages m
 		JOIN Users u ON m.receiver_id = u.id
 		WHERE m.sender_id = $1 AND m.is_deleted_by_sender = FALSE
-		ORDER BY m.created_at DESC
+		ORDER BY m.created_at DESC, m.id DESC
 		LIMIT $2 OFFSET $3
 	`, userID, limit, offset)
 	if err != nil {
@@ -335,7 +371,7 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"messages":   messages,
-		"pagination": PaginationMeta{Page: page, Limit: limit, Total: total, TotalPages: int(math.Ceil(float64(total) / float64(limit)))},
+		"pagination": PaginationMeta{Page: page, Limit: limit, Total: total, TotalPages: totalPages},
 	})
 }
 

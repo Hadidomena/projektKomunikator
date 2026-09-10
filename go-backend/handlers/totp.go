@@ -104,6 +104,13 @@ func TOTPSetupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !ctx.CSRFStore.ValidateToken(userEmail, req.CSRFToken) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
+		return
+	}
+
 	secret, err := totp.GenerateSecret()
 	if err != nil {
 		log.Printf("Failed to generate TOTP secret for user %d: %v", userID, err)
@@ -410,7 +417,14 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 
 	emailAddr := strings.ToLower(req.Email)
 
-	isLocked, remainingTime, isBlocked := ctx.LoginTracker.CheckAccountStatus(emailAddr)
+	isLocked, remainingTime, isBlocked, err := ctx.LoginTracker.CheckAccountStatus(emailAddr)
+	if err != nil {
+		log.Printf("Error checking account status for %s: %v", emailAddr, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Service temporarily unavailable. Please try again later"})
+		return
+	}
 
 	if isBlocked {
 		w.Header().Set("Content-Type", "application/json")
@@ -436,7 +450,7 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 	var encryptedTotpSecret string
 	var totpEnabled bool
 	var passwordHash string
-	err := ctx.DB.QueryRowContext(ctxDB, `SELECT id, password_hash, totp_secret, totp_enabled FROM Users WHERE email = $1`, emailAddr).
+	err = ctx.DB.QueryRowContext(ctxDB, `SELECT id, password_hash, totp_secret, totp_enabled FROM Users WHERE email = $1`, emailAddr).
 		Scan(&userID, &passwordHash, &encryptedTotpSecret, &totpEnabled)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -548,7 +562,9 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx.LoginTracker.ResetAttempts(emailAddr)
+	if err := ctx.LoginTracker.ResetAttempts(emailAddr); err != nil {
+		log.Printf("Failed to reset login attempts for %s: %v", emailAddr, err)
+	}
 
 	token, err := jwt_auth.GenerateToken(userID, emailAddr)
 	if err != nil {
