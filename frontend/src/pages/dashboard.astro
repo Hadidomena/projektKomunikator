@@ -122,7 +122,7 @@
           <div class="file-upload" id="fileUpload">
             <input type="file" id="fileInput" multiple hidden />
             📎 Click or drag files here to attach<br>
-            <small>Max 25MB per file</small>
+            <small>Max 15MB per file</small>
           </div>
           <div class="file-list" id="fileList"></div>
         </div>
@@ -569,8 +569,8 @@
 
     function addFiles(files: File[]) {
       for (const file of files) {
-        if (file.size > 10 * 1024 * 1024) {
-          alert(`File ${file.name} is too large (max 10MB)`);
+        if (file.size > 15 * 1024 * 1024) {
+          alert(`File ${file.name} is too large (max 15MB)`);
           continue;
         }
         currentFiles.push(file);
@@ -695,9 +695,17 @@
           renderFileList();
           loadMessages();
         } else {
-          const error = await response.json();
-          console.error('Server error:', error);
-          alert(`Failed to send message: ${error.message}`);
+          let errorMessage = `Failed to send message (${response.status})`;
+          const contentType = response.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            try {
+              const error = await response.json();
+              errorMessage = `Failed to send message: ${error.message}`;
+            } catch (e) {
+            }
+          }
+          console.error('Send error:', response.status);
+          alert(errorMessage);
         }
       } catch (error) {
         console.error('Send error:', error);
