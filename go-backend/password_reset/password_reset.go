@@ -2,10 +2,16 @@ package password_reset
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"time"
 )
+
+func HashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return base64.URLEncoding.EncodeToString(h[:])
+}
 
 const (
 	TokenLength     = 32

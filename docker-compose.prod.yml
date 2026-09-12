@@ -16,31 +16,26 @@ services:
       -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' > /dev/null 2>&1; fi;
       nginx -g 'daemon off;'"
     depends_on:
-      - frontend
       - backend
+      - frontend
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile.prod
     expose:
       - "4321"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    command: ["pnpm", "run", "dev", "--", "--host", "0.0.0.0"]
     depends_on:
       - backend
+    restart: unless-stopped
 
   backend:
     build:
       context: ./go-backend
+      dockerfile: Dockerfile.prod
     expose:
       - "8080"
-    volumes:
-      - ./go-backend:/app
-      - /app/tmp
-    command: ["air", "-c", ".air.toml"]
     env_file:
       - .env
     environment:
@@ -48,6 +43,7 @@ services:
     depends_on:
       database:
         condition: service_healthy
+    restart: unless-stopped
 
   database:
     build:

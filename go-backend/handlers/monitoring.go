@@ -11,6 +11,22 @@ import (
 	"github.com/Hadidomena/projektKomunikator/login_monitoring"
 )
 
+func IsAdmin(userID int) (bool, error) {
+	var isAdmin bool
+	err := ctx.DB.QueryRow("SELECT is_admin FROM Users WHERE id = $1", userID).Scan(&isAdmin)
+	if err != nil {
+		return false, err
+	}
+	return isAdmin, nil
+}
+
+type contextKey string
+
+const (
+	ContextKeyUserID    contextKey = "userID"
+	ContextKeyUserEmail contextKey = "userEmail"
+)
+
 func GetLoginHistoryHandler(w http.ResponseWriter, r *http.Request, userID int, userEmail string) {
 	history, err := login_monitoring.GetLoginHistory(ctx.DB, userID, 20)
 	if err != nil {
@@ -48,13 +64,44 @@ func GetHoneypotStatsHandler(w http.ResponseWriter, r *http.Request, userID int,
 	json.NewEncoder(w).Encode(stats)
 }
 
+func LoginHistoryHandler(w http.ResponseWriter, r *http.Request) {
+	userID, userEmail, err := GetUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		return
+	}
+	GetLoginHistoryHandler(w, r, userID, userEmail)
+}
+
+func HoneypotStatsHandler(w http.ResponseWriter, r *http.Request) {
+	userID, userEmail, err := GetUserFromContext(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		return
+	}
+
+	admin, err := IsAdmin(userID)
+	if err != nil || !admin {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Admin access required"})
+		return
+	}
+
+	GetHoneypotStatsHandler(w, r, userID, userEmail)
+}
+
 func GetUserFromContext(r *http.Request) (int, string, error) {
-	userID, ok := r.Context().Value("userID").(int)
+	userID, ok := r.Context().Value(ContextKeyUserID).(int)
 	if !ok {
 		return 0, "", fmt.Errorf("user ID not found in context")
 	}
 
-	userEmail, ok := r.Context().Value("userEmail").(string)
+	userEmail, ok := r.Context().Value(ContextKeyUserEmail).(string)
 	if !ok {
 		return 0, "", fmt.Errorf("user email not found in context")
 	}

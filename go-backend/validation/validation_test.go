@@ -199,14 +199,14 @@ func TestLoginAttemptTracker_CheckAccountStatus(t *testing.T) {
 	ip := "192.168.1.1"
 
 	// Initially, account should not be locked
-	isLocked, remainingTime, isBlocked := tracker.CheckAccountStatus(email)
+	isLocked, remainingTime, isBlocked, _ := tracker.CheckAccountStatus(email)
 	if isLocked || isBlocked {
 		t.Error("New account should not be locked or blocked")
 	}
 
 	// After one failed attempt, should be locked
 	tracker.RecordFailedAttempt(email, ip)
-	isLocked, remainingTime, isBlocked = tracker.CheckAccountStatus(email)
+	isLocked, remainingTime, isBlocked, _ = tracker.CheckAccountStatus(email)
 	if !isLocked {
 		t.Error("Account should be locked after failed attempt")
 	}
@@ -221,7 +221,7 @@ func TestLoginAttemptTracker_CheckAccountStatus(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		tracker.RecordFailedAttempt(email, ip)
 	}
-	isLocked, remainingTime, isBlocked = tracker.CheckAccountStatus(email)
+	isLocked, remainingTime, isBlocked, _ = tracker.CheckAccountStatus(email)
 	if !isLocked {
 		t.Error("Account should be locked")
 	}
@@ -244,7 +244,7 @@ func TestLoginAttemptTracker_ResetAttempts(t *testing.T) {
 	tracker.RecordFailedAttempt(email, ip)
 
 	// Verify account is locked
-	isLocked, _, _ := tracker.CheckAccountStatus(email)
+	isLocked, _, _, _ := tracker.CheckAccountStatus(email)
 	if !isLocked {
 		t.Error("Account should be locked after failed attempts")
 	}
@@ -253,7 +253,7 @@ func TestLoginAttemptTracker_ResetAttempts(t *testing.T) {
 	tracker.ResetAttempts(email)
 
 	// Check status should show unlocked
-	isLocked, _, _ = tracker.CheckAccountStatus(email)
+	isLocked, _, _, _ = tracker.CheckAccountStatus(email)
 	if isLocked {
 		t.Error("Account should not be locked after reset")
 	}
@@ -282,7 +282,7 @@ func TestLoginAttemptTracker_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Just verify no panic occurred and account is in some locked/blocked state
-	isLocked, _, _ := tracker.CheckAccountStatus(email)
+	isLocked, _, _, _ := tracker.CheckAccountStatus(email)
 	if !isLocked {
 		t.Error("Account should be locked after concurrent attempts")
 	}
@@ -301,8 +301,8 @@ func TestLoginAttemptTracker_MultipleAccounts(t *testing.T) {
 	tracker.RecordFailedAttempt(email2, ip)
 
 	// Check status for each account - both should be locked
-	isLocked1, _, _ := tracker.CheckAccountStatus(email1)
-	isLocked2, _, _ := tracker.CheckAccountStatus(email2)
+	isLocked1, _, _, _ := tracker.CheckAccountStatus(email1)
+	isLocked2, _, _, _ := tracker.CheckAccountStatus(email2)
 
 	if !isLocked1 || !isLocked2 {
 		t.Error("Both accounts should be locked")

@@ -202,45 +202,36 @@
           document.getElementById('totp-disabled')?.classList.add('hidden');
           document.getElementById('totp-setup')?.classList.remove('hidden');
           const qrContainer = document.getElementById('qrCodeContainer');
-          if (qrContainer && data.qr_code) {
-            // Use qrcode library to generate QR code
+          if (qrContainer && data.secret) {
+            // Display the secret locally - no third-party QR service (would leak the secret)
+            const otpauthUrl = data.qr_code || '';
             qrContainer.innerHTML = `
               <div style="text-align: center; padding: 20px; background: white; border-radius: 10px;">
-                <canvas id="qrCanvas"></canvas>
-                <p style="margin-top: 10px; font-size: 12px; color: #666;">
-                  Secret: <code style="background: #f0f0f0; padding: 5px; border-radius: 3px;">${data.secret || ''}</code>
-                </p>
+                <p style="color: #666; margin-bottom: 10px; font-size: 13px;">Enter this secret manually in your authenticator app:</p>
+                <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 15px;">
+                  <code style="background: #f0f0f0; padding: 10px 15px; border-radius: 5px; font-size: 16px; letter-spacing: 2px; font-weight: bold;">${data.secret}</code>
+                  <button type="button" id="copySecretBtn" style="padding: 8px 12px; font-size: 12px;">Copy</button>
+                </div>
+                <p style="color: #666; margin-bottom: 5px; font-size: 12px;">Or copy the otpauth:// link:</p>
+                <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                  <code style="word-break: break-all; background: #f0f0f0; padding: 8px; border-radius: 5px; font-size: 10px; max-width: 90%;">${otpauthUrl}</code>
+                  <button type="button" id="copyUriBtn" style="padding: 8px 12px; font-size: 12px;">Copy</button>
+                </div>
+                <p style="margin-top: 12px; font-size: 11px; color: #999;">Your secret never leaves your browser or our server (encrypted at rest).</p>
               </div>
             `;
-            
-            // Generate QR code on canvas using simple data URL
-            const canvas = document.getElementById('qrCanvas') as HTMLCanvasElement;
-            if (canvas) {
-              const ctx = canvas.getContext('2d');
-              if (ctx) {
-                // Use Google Charts API as fallback
-                const img = new Image();
-                img.crossOrigin = 'anonymous';
-                img.onload = () => {
-                  canvas.width = 300;
-                  canvas.height = 300;
-                  ctx.drawImage(img, 0, 0, 300, 300);
-                };
-                img.onerror = () => {
-                  // Fallback: show URL as text
-                  qrContainer.innerHTML = `
-                    <div style="padding: 20px; background: white; border-radius: 10px;">
-                      <p style="color: #666; margin-bottom: 10px;">Scan this URL in your authenticator app:</p>
-                      <code style="word-break: break-all; background: #f0f0f0; padding: 10px; display: block; border-radius: 5px; font-size: 11px;">${data.qr_code}</code>
-                      <p style="margin-top: 10px; font-size: 12px; color: #666;">
-                        Or enter this secret manually: <strong>${data.secret || ''}</strong>
-                      </p>
-                    </div>
-                  `;
-                };
-                img.src = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(data.qr_code)}`;
-              }
-            }
+
+            document.getElementById('copySecretBtn')?.addEventListener('click', () => {
+              navigator.clipboard.writeText(data.secret).then(() => {
+                showMessage('enable2faMessage', 'Secret copied to clipboard', false);
+              });
+            });
+
+            document.getElementById('copyUriBtn')?.addEventListener('click', () => {
+              navigator.clipboard.writeText(otpauthUrl).then(() => {
+                showMessage('enable2faMessage', 'otpauth:// link copied to clipboard', false);
+              });
+            });
           }
         } else {
           showMessage('enable2faMessage', data.message, true);
@@ -285,7 +276,12 @@
     });
 
     document.getElementById('disable2faBtn')?.addEventListener('click', async () => {
-      if (!confirm('Are you sure you want to disable 2FA?')) return;
+      const code = prompt('Enter your current 6-digit 2FA code to confirm disabling 2FA:');
+      if (!code) return;
+      if (code.length !== 6) {
+        showMessage('disable2faMessage', 'Please enter a valid 6-digit code', true);
+        return;
+      }
 
       try {
         const response = await fetch(`${API_URL}/api/2fa/disable`, {
@@ -294,7 +290,7 @@
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ csrf_token: csrfToken })
+          body: JSON.stringify({ csrf_token: csrfToken, totp_code: code })
         });
 
         const data = await response.json();

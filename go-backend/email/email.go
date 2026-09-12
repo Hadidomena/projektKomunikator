@@ -23,7 +23,6 @@ var (
 )
 
 func init() {
-	// Load email configuration from environment variables
 	smtpAddr = os.Getenv("SMTP_ADDR")
 	if smtpAddr == "" {
 		smtpAddr = "smtp.example.com:587"
@@ -81,12 +80,12 @@ var sendFunc = func(e *email.Email) error {
 	return e.SendWithTLS(smtpAddr, auth, &tls.Config{InsecureSkipVerify: false, ServerName: tlsServerName})
 }
 
-func SendEmail(recipient []string, template string) error {
+func SendEmail(subject string, recipient []string, body string) error {
 	e := email.NewEmail()
 	e.From = fmt.Sprintf("%s <%s>", fromName, fromEmail)
 	e.To = recipient
-	e.Subject = "Test"
-	e.Text = []byte(template)
+	e.Subject = subject
+	e.Text = []byte(body)
 
 	if err := sendFunc(e); err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
@@ -95,10 +94,10 @@ func SendEmail(recipient []string, template string) error {
 }
 
 func generateVerificationCode() (string, error) {
-	characterSet := "abcdefghijklmnopqrstuwxyzABCDEFGHIJKLMNOPQRSTUWXYZ1234567890"
+	characterSet := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
 	lenOfSet := int64(len(characterSet))
 	code := []rune{}
-	for x := 0; x < 12; x++ {
+	for range 12 {
 		random, err := secureInt(lenOfSet)
 		if err != nil {
 			return "", err
@@ -111,18 +110,20 @@ func generateVerificationCode() (string, error) {
 func SendPasswordResetEmail(recipientEmail, token string) {
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
-		frontendURL = "http://localhost:3000"
+		frontendURL = "http://localhost:4321"
 	}
 	resetLink := fmt.Sprintf("%s/reset-password?token=%s", frontendURL, token)
-	_ = fmt.Sprintf("Password Reset Request")
-	_ = fmt.Sprintf("Click the following link to reset your password: %s\n\nThis link will expire in 1 hour.", resetLink)
+	body := fmt.Sprintf("Click the following link to reset your password: %s\n\nThis link will expire in 1 hour.", resetLink)
 
-	fmt.Printf("Password reset email to %s: %s\n", recipientEmail, resetLink)
+	if err := SendEmail("Password Reset Request", []string{recipientEmail}, body); err != nil {
+		fmt.Printf("Failed to send password reset email to %s: %v\n", recipientEmail, err)
+	}
 }
 
 func SendNewDeviceEmail(recipientEmail, ip, userAgent string) {
-	_ = fmt.Sprintf("New Device Login Detected")
-	_ = fmt.Sprintf("A new login was detected from:\nIP: %s\nDevice: %s\n\nIf this wasn't you, please secure your account immediately.", ip, userAgent)
+	body := fmt.Sprintf("A new login was detected from:\nIP: %s\nDevice: %s\n\nIf this wasn't you, please secure your account immediately.", ip, userAgent)
 
-	fmt.Printf("New device alert to %s from IP %s\n", recipientEmail, ip)
+	if err := SendEmail("New Device Login Detected", []string{recipientEmail}, body); err != nil {
+		fmt.Printf("Failed to send new device alert to %s: %v\n", recipientEmail, err)
+	}
 }

@@ -79,7 +79,14 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	emailAddr := strings.ToLower(req.Email)
 
-	isLocked, remainingTime, isBlocked := ctx.LoginTracker.CheckAccountStatus(emailAddr)
+	isLocked, remainingTime, isBlocked, err := ctx.LoginTracker.CheckAccountStatus(emailAddr)
+	if err != nil {
+		log.Printf("Error checking account status for %s: %v", emailAddr, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "Service temporarily unavailable. Please try again later"})
+		return
+	}
 
 	if isBlocked {
 		w.Header().Set("Content-Type", "application/json")
@@ -105,7 +112,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var userID int
 	var totpEnabled bool
 	var publicKey, privateKeyEncrypted string
-	err := ctx.DB.QueryRowContext(ctx2,
+	err = ctx.DB.QueryRowContext(ctx2,
 		"SELECT id, password_hash, totp_enabled, COALESCE(e2ee_public_key, ''), COALESCE(e2ee_private_key_encrypted, '') FROM Users WHERE email = $1",
 		emailAddr).Scan(&userID, &storedHash, &totpEnabled, &publicKey, &privateKeyEncrypted)
 
@@ -165,7 +172,9 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx.LoginTracker.ResetAttempts(emailAddr)
+	if err := ctx.LoginTracker.ResetAttempts(emailAddr); err != nil {
+		log.Printf("Failed to reset login attempts for %s: %v", emailAddr, err)
+	}
 
 	ip := GetClientIP(r)
 	userAgent := r.UserAgent()

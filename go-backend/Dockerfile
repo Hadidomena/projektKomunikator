@@ -1,5 +1,5 @@
 # Use the official Go image.
-FROM golang:1.25.3-alpine
+FROM golang:1.26.1-alpine
 
 WORKDIR /app
 RUN go install github.com/air-verse/air@latest
