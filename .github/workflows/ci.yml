@@ -24,6 +24,8 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Vet
         run: go vet ./...
+      - name: Format
+        run: test -z "$(gofmt -l .)"
 
   backend-test:
     name: Backend tests
@@ -68,7 +70,7 @@ jobs:
         with:
           version: 9
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm build
 
@@ -80,6 +82,14 @@ jobs:
       - name: Build Docker image
         run: docker build -t komunikator-backend ./go-backend
 
+  docker-backend-prod:
+    name: Docker backend (prod)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -f Dockerfile.prod -t komunikator-backend-prod ./go-backend
+
   docker-frontend:
     name: Docker frontend
     runs-on: ubuntu-latest
@@ -87,6 +97,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build Docker image
         run: docker build -t komunikator-frontend ./frontend
+
+  docker-frontend-prod:
+    name: Docker frontend (prod)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -f Dockerfile.prod -t komunikator-frontend-prod ./frontend
 
   docker-database:
     name: Docker database
