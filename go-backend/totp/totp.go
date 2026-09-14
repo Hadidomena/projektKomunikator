@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -131,11 +132,11 @@ func generateHOTP(key []byte, counter uint64, digits int) (string, error) {
 }
 
 func GenerateQRCodeURL(accountName, issuer, secret string) string {
+	label := url.PathEscape(issuer + ":" + accountName)
 	return fmt.Sprintf(
-		"otpauth://totp/%s:%s?secret=%s&issuer=%s&algorithm=SHA1&digits=6&period=30",
-		issuer,
-		accountName,
-		secret,
-		issuer,
+		"otpauth://totp/%s?secret=%s&issuer=%s&algorithm=SHA1&digits=6&period=30",
+		label,
+		url.QueryEscape(secret),
+		url.QueryEscape(issuer),
 	)
 }
