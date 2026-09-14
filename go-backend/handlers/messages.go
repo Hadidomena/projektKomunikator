@@ -470,13 +470,12 @@ func GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	var msg MessageResponse
 	var senderEmail, receiverEmail string
-	var senderID, receiverID int
 	var encryptedKey sql.NullString
 	var signature sql.NullString
 	var receiverPublicKey string
 
 	err = ctx.DB.QueryRowContext(ctxDB, `
-		SELECT m.id, m.sender_id, u1.email, m.receiver_id, u2.email, 
+		SELECT m.id, u1.email, u2.email, 
 		       m.content, m.encrypted_key, m.message_signature,
 		       m.is_read, m.created_at, m.read_at, COALESCE(m.dh_public_key, ''),
 		       COALESCE(u2.e2ee_public_key, '')
@@ -488,7 +487,7 @@ func GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 		  AND ((m.sender_id = $2 AND m.is_deleted_by_sender = FALSE) 
 		       OR (m.receiver_id = $2 AND m.is_deleted_by_receiver = FALSE))
 	`, messageID, userID).Scan(
-		&msg.ID, &senderID, &senderEmail, &receiverID, &receiverEmail,
+		&msg.ID, &senderEmail, &receiverEmail,
 		&msg.Content, &encryptedKey, &signature,
 		&msg.IsRead, &msg.CreatedAt, &msg.ReadAt, &msg.DHPublicKey, &receiverPublicKey,
 	)

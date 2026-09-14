@@ -214,21 +214,6 @@ func UpdateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type UserKeysRequest struct {
-	UserID int    `json:"user_id"`
-	Token  string `json:"token"`
-	Keys   struct {
-		PublicKey   string `json:"public_key"`
-		PrivateKey  string `json:"private_key"`
-		Signature   string `json:"signature"`
-		PublicKeyID string `json:"public_key_id"`
-	} `json:"keys"`
-}
-
-type CSRFTokenRequest struct {
-	Token string `json:"csrf_token"`
-}
-
 func CSRFTokenHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
