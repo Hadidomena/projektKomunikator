@@ -43,19 +43,3 @@ func GenerateResetToken(userID int) (*ResetToken, error) {
 		CreatedAt: time.Now(),
 	}, nil
 }
-
-func ValidateToken(token string, storedToken *ResetToken) error {
-	if storedToken.Used {
-		return fmt.Errorf("token already used")
-	}
-
-	if time.Now().After(storedToken.ExpiresAt) {
-		return fmt.Errorf("token expired")
-	}
-
-	if storedToken.Token != token {
-		return fmt.Errorf("invalid token")
-	}
-
-	return nil
-}

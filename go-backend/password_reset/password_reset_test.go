@@ -52,35 +52,6 @@ func TestGenerateResetToken_Uniqueness(t *testing.T) {
 	}
 }
 
-func TestValidateToken_Valid(t *testing.T) {
-	token, _ := GenerateResetToken(1)
-
-	err := ValidateToken(token.Token, token)
-	if err != nil {
-		t.Errorf("Valid token should pass validation: %v", err)
-	}
-}
-
-func TestValidateToken_Used(t *testing.T) {
-	token, _ := GenerateResetToken(1)
-	token.Used = true
-
-	err := ValidateToken(token.Token, token)
-	if err == nil {
-		t.Error("Used token should fail validation")
-	}
-}
-
-func TestValidateToken_Expired(t *testing.T) {
-	token, _ := GenerateResetToken(1)
-	token.ExpiresAt = time.Now().Add(-1 * time.Hour)
-
-	err := ValidateToken(token.Token, token)
-	if err == nil {
-		t.Error("Expired token should fail validation")
-	}
-}
-
 func TestHashToken(t *testing.T) {
 	token := "test-reset-token-123"
 	hash1 := HashToken(token)
@@ -101,14 +72,5 @@ func TestHashToken(t *testing.T) {
 	hash3 := HashToken("different-token")
 	if hash1 == hash3 {
 		t.Error("Different tokens should produce different hashes")
-	}
-}
-
-func TestValidateToken_Invalid(t *testing.T) {
-	token, _ := GenerateResetToken(1)
-
-	err := ValidateToken("wrong-token", token)
-	if err == nil {
-		t.Error("Invalid token should fail validation")
 	}
 }
