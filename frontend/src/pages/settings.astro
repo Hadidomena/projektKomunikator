@@ -1,6 +1,3 @@
----
-// Settings page for 2FA, devices, and account management
----
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -221,16 +218,24 @@
               </div>
             `;
 
-            document.getElementById('copySecretBtn')?.addEventListener('click', () => {
-              navigator.clipboard.writeText(data.secret).then(() => {
-                showMessage('enable2faMessage', 'Secret copied to clipboard', false);
+            function copyToClipboard(text: string, successMessage: string) {
+              if (!navigator.clipboard) {
+                showMessage('enable2faMessage', 'Clipboard not available in this browser', true);
+                return;
+              }
+              navigator.clipboard.writeText(text).then(() => {
+                showMessage('enable2faMessage', successMessage, false);
+              }).catch(() => {
+                showMessage('enable2faMessage', 'Failed to copy to clipboard', true);
               });
+            }
+
+            document.getElementById('copySecretBtn')?.addEventListener('click', () => {
+              copyToClipboard(data.secret, 'Secret copied to clipboard');
             });
 
             document.getElementById('copyUriBtn')?.addEventListener('click', () => {
-              navigator.clipboard.writeText(otpauthUrl).then(() => {
-                showMessage('enable2faMessage', 'otpauth:// link copied to clipboard', false);
-              });
+              copyToClipboard(otpauthUrl, 'otpauth:// link copied to clipboard');
             });
           }
         } else {
