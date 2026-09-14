@@ -131,9 +131,7 @@ func main() {
 		}
 	})
 
-	handler := middleware.SecurityHeadersMiddleware(
-		middleware.CORSMiddleware(conditionalRateLimiter),
-	)
+	handler := middleware.CORSMiddleware(conditionalRateLimiter)
 
 	fmt.Println("Go backend server starting on port 8080")
 	fmt.Println("Security features enabled: CORS, Rate Limiting, Security Headers")

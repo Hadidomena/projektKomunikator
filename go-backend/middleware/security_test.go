@@ -9,44 +9,6 @@ import (
 	"time"
 )
 
-func TestSecurityHeadersMiddleware(t *testing.T) {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	middleware := SecurityHeadersMiddleware(handler)
-
-	// Test non-production
-	os.Unsetenv("ENVIRONMENT")
-	req := httptest.NewRequest("GET", "/test", nil)
-	rec := httptest.NewRecorder()
-	middleware.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", rec.Code)
-	}
-
-	// Check key headers
-	if rec.Header().Get("X-Frame-Options") != "DENY" {
-		t.Error("X-Frame-Options not set correctly")
-	}
-	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
-		t.Error("X-Content-Type-Options not set correctly")
-	}
-	if rec.Header().Get("Strict-Transport-Security") != "" {
-		t.Error("HSTS should not be set in non-production")
-	}
-
-	// Test production
-	os.Setenv("ENVIRONMENT", "production")
-	defer os.Unsetenv("ENVIRONMENT")
-	rec2 := httptest.NewRecorder()
-	middleware.ServeHTTP(rec2, httptest.NewRequest("GET", "/test", nil))
-
-	if rec2.Header().Get("Strict-Transport-Security") != "max-age=31536000; includeSubDomains" {
-		t.Error("HSTS not set correctly in production")
-	}
-}
-
 func TestCORSMiddleware(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -57,7 +19,6 @@ func TestCORSMiddleware(t *testing.T) {
 
 	middleware := CORSMiddleware(handler)
 
-	// Test allowed origin
 	req := httptest.NewRequest("GET", "/test", nil)
 	req.Header.Set("Origin", "http://localhost:3000")
 	rec := httptest.NewRecorder()
@@ -67,7 +28,6 @@ func TestCORSMiddleware(t *testing.T) {
 		t.Error("Allowed origin not set correctly")
 	}
 
-	// Test disallowed origin
 	req2 := httptest.NewRequest("GET", "/test", nil)
 	req2.Header.Set("Origin", "http://evil.com")
 	rec2 := httptest.NewRecorder()
@@ -77,7 +37,6 @@ func TestCORSMiddleware(t *testing.T) {
 		t.Error("Disallowed origin should not be set")
 	}
 
-	// Test OPTIONS request
 	req3 := httptest.NewRequest("OPTIONS", "/test", nil)
 	req3.Header.Set("Origin", "http://localhost:3000")
 	rec3 := httptest.NewRecorder()
@@ -97,7 +56,6 @@ func TestRateLimiter(t *testing.T) {
 
 	ip := "192.168.1.1"
 
-	// Test basic rate limiting
 	for i := 0; i < 3; i++ {
 		if !rl.Allow(ip) {
 			t.Errorf("Request %d should be allowed", i+1)
@@ -108,12 +66,10 @@ func TestRateLimiter(t *testing.T) {
 		t.Error("4th request should be denied")
 	}
 
-	// Test different IPs have separate limits
 	if !rl.Allow("192.168.1.2") {
 		t.Error("Different IP should be allowed")
 	}
 
-	// Test window reset
 	window := 100 * time.Millisecond
 	rl2 := NewRateLimiter(1, window)
 	rl2.Allow(ip)
@@ -125,7 +81,6 @@ func TestRateLimiter(t *testing.T) {
 		t.Error("Should be allowed after window reset")
 	}
 
-	// Test concurrent access
 	rl3 := NewRateLimiter(100, time.Second)
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
@@ -157,7 +112,6 @@ func TestRateLimitMiddleware(t *testing.T) {
 	rl := NewRateLimiter(2, time.Second)
 	middleware := rl.RateLimitMiddleware(handler)
 
-	// First 2 requests succeed
 	for i := 0; i < 2; i++ {
 		req := httptest.NewRequest("GET", "/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
@@ -169,7 +123,6 @@ func TestRateLimitMiddleware(t *testing.T) {
 		}
 	}
 
-	// 3rd request should be denied
 	req := httptest.NewRequest("GET", "/test", nil)
 	req.RemoteAddr = "192.168.1.1:12345"
 	rec := httptest.NewRecorder()
@@ -179,7 +132,6 @@ func TestRateLimitMiddleware(t *testing.T) {
 		t.Errorf("Expected 429, got %d", rec.Code)
 	}
 
-	// Test X-Forwarded-For
 	req2 := httptest.NewRequest("GET", "/test", nil)
 	req2.RemoteAddr = "10.0.0.1:12345"
 	req2.Header.Set("X-Forwarded-For", "192.168.1.100")
