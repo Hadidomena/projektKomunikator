@@ -1,6 +1,3 @@
----
-// Login page
----
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -26,7 +23,6 @@
     .links a:hover { text-decoration: underline; }
     .totp-section { display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd; }
     .totp-section.active { display: block; }
-    /* Honeypot fields - hidden from real users */
     .hp-field { position: absolute; left: -9999px; opacity: 0; height: 0; width: 0; z-index: -1; }
   </style>
 </head>
@@ -112,9 +108,9 @@
           body: JSON.stringify({ 
             email, 
             password,
-            website,        // Honeypot field
-            phone,          // Honeypot field
-            middle_name: middleName  // Honeypot field
+            website,
+            phone,
+            middle_name: middleName
           })
         });
 

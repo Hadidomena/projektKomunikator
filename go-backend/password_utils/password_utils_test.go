@@ -3,7 +3,6 @@ package passwordutils
 import "testing"
 
 func init() {
-	// Load common passwords for tests
 	LoadCommonPasswords()
 }
 

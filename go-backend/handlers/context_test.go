@@ -10,15 +10,12 @@ import (
 )
 
 func TestInitializeAndGetContext(t *testing.T) {
-	// Mock dependencies
 	var db *sql.DB
 	csrfStore := csrf.NewTokenStore()
 	loginTracker := validation.NewLoginAttemptTracker()
 
-	// Initialize handlers context
 	handlers.Initialize(db, csrfStore, loginTracker, "test-e2ee-pepper")
 
-	// Get context
 	ctx := handlers.GetContext()
 
 	if ctx == nil {
@@ -39,7 +36,6 @@ func TestInitializeAndGetContext(t *testing.T) {
 }
 
 func TestGetContextBeforeInitialize(t *testing.T) {
-	// Reset context by initializing with nil (not recommended in production)
 	handlers.Initialize(nil, nil, nil, "")
 
 	ctx := handlers.GetContext()

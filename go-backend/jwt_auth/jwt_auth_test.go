@@ -6,7 +6,6 @@ import (
 )
 
 func TestInitJWT(t *testing.T) {
-	// Save original env variable
 	originalSecret := os.Getenv("JWT_SECRET")
 	defer os.Setenv("JWT_SECRET", originalSecret)
 
@@ -35,7 +34,7 @@ func TestInitJWT(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			os.Setenv("JWT_SECRET", tt.secret)
-			jwtSecret = nil // Reset
+			jwtSecret = nil
 
 			err := InitJWT()
 
@@ -50,7 +49,6 @@ func TestInitJWT(t *testing.T) {
 }
 
 func TestGenerateToken(t *testing.T) {
-	// Initialize JWT with test secret
 	os.Setenv("JWT_SECRET", "test-secret-key-for-unit-testing-purposes-123")
 	err := InitJWT()
 	if err != nil {
@@ -69,14 +67,12 @@ func TestGenerateToken(t *testing.T) {
 		t.Error("Generated token is empty")
 	}
 
-	// Token should be a valid JWT format (header.payload.signature)
 	if len(token) < 50 {
 		t.Error("Generated token seems too short")
 	}
 }
 
 func TestValidateToken(t *testing.T) {
-	// Initialize JWT with test secret
 	os.Setenv("JWT_SECRET", "test-secret-key-for-unit-testing-purposes-123")
 	err := InitJWT()
 	if err != nil {
@@ -86,13 +82,11 @@ func TestValidateToken(t *testing.T) {
 	userID := 456
 	email := "validate@example.com"
 
-	// Generate a valid token
 	token, err := GenerateToken(userID, email)
 	if err != nil {
 		t.Fatalf("Failed to generate token: %v", err)
 	}
 
-	// Validate the token
 	claims, err := ValidateToken(token)
 	if err != nil {
 		t.Fatalf("Failed to validate token: %v", err)
@@ -108,7 +102,6 @@ func TestValidateToken(t *testing.T) {
 }
 
 func TestValidateToken_InvalidToken(t *testing.T) {
-	// Initialize JWT
 	os.Setenv("JWT_SECRET", "test-secret-key-for-unit-testing-purposes-123")
 	err := InitJWT()
 	if err != nil {
@@ -132,7 +125,6 @@ func TestValidateToken_InvalidToken(t *testing.T) {
 }
 
 func TestGenerateToken_UninitializedJWT(t *testing.T) {
-	// Reset JWT secret
 	jwtSecret = nil
 
 	_, err := GenerateToken(123, "test@example.com")
@@ -142,7 +134,6 @@ func TestGenerateToken_UninitializedJWT(t *testing.T) {
 }
 
 func TestValidateToken_UninitializedJWT(t *testing.T) {
-	// Reset JWT secret
 	jwtSecret = nil
 
 	_, err := ValidateToken("some.token.here")
@@ -152,7 +143,6 @@ func TestValidateToken_UninitializedJWT(t *testing.T) {
 }
 
 func TestTokenClaims(t *testing.T) {
-	// Initialize JWT
 	os.Setenv("JWT_SECRET", "test-secret-key-for-unit-testing-purposes-123")
 	err := InitJWT()
 	if err != nil {
@@ -172,7 +162,6 @@ func TestTokenClaims(t *testing.T) {
 		t.Fatalf("Failed to validate token: %v", err)
 	}
 
-	// Check all claims
 	if claims.UserID != userID {
 		t.Errorf("UserID mismatch: expected %d, got %d", userID, claims.UserID)
 	}

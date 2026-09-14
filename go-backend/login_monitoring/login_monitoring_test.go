@@ -21,7 +21,6 @@ func TestGenerateDeviceFingerprint(t *testing.T) {
 		t.Errorf("Fingerprint should be 64 characters (SHA256 hex), got %d", len(fp1))
 	}
 
-	// Check if fingerprint is valid hex
 	for _, c := range fp1 {
 		if !strings.ContainsRune("0123456789abcdef", c) {
 			t.Errorf("Fingerprint contains invalid hex character: %c", c)

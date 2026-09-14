@@ -16,7 +16,6 @@ func TestGenerateSecret(t *testing.T) {
 		t.Error("Generated secret should not be empty")
 	}
 
-	// Check length
 	if len(secret) < 20 {
 		t.Errorf("Secret length should be at least 20 characters, got %d", len(secret))
 	}
@@ -52,7 +51,6 @@ func TestGenerateTOTP(t *testing.T) {
 		t.Errorf("TOTP code should have %d digits, got %d", config.Digits, len(code))
 	}
 
-	// Code should only contain digits
 	for _, c := range code {
 		if c < '0' || c > '9' {
 			t.Errorf("TOTP code should only contain digits, got: %s", code)
@@ -70,13 +68,11 @@ func TestValidateTOTP(t *testing.T) {
 	now := time.Now()
 	config := DefaultConfig()
 
-	// Generate a valid code
 	code, err := GenerateTOTP(secret, now, config)
 	if err != nil {
 		t.Fatalf("Failed to generate TOTP: %v", err)
 	}
 
-	// Validate the code
 	valid, err := ValidateTOTP(secret, code, config)
 	if err != nil {
 		t.Fatalf("Failed to validate TOTP: %v", err)
@@ -101,7 +97,6 @@ func TestValidateTOTP_InvalidCode(t *testing.T) {
 		t.Fatalf("Failed to validate TOTP: %v", err)
 	}
 
-	// There's a very small chance this could be a valid code, but extremely unlikely
 	if valid {
 		t.Log("Warning: Invalid code was validated (extremely rare but possible)")
 	}
@@ -116,13 +111,11 @@ func TestValidateTOTP_PreviousWindow(t *testing.T) {
 	config := DefaultConfig()
 	previousTime := time.Now().Add(-time.Duration(config.Period) * time.Second)
 
-	// Generate code for previous time window
 	code, err := GenerateTOTP(secret, previousTime, config)
 	if err != nil {
 		t.Fatalf("Failed to generate TOTP: %v", err)
 	}
 
-	// Should still be valid due to time window tolerance
 	valid, err := ValidateTOTP(secret, code, config)
 	if err != nil {
 		t.Fatalf("Failed to validate TOTP: %v", err)
@@ -142,13 +135,11 @@ func TestValidateTOTP_NextWindow(t *testing.T) {
 	config := DefaultConfig()
 	nextTime := time.Now().Add(time.Duration(config.Period) * time.Second)
 
-	// Generate code for next time window
 	code, err := GenerateTOTP(secret, nextTime, config)
 	if err != nil {
 		t.Fatalf("Failed to generate TOTP: %v", err)
 	}
 
-	// Should still be valid due to time window tolerance
 	valid, err := ValidateTOTP(secret, code, config)
 	if err != nil {
 		t.Fatalf("Failed to validate TOTP: %v", err)
@@ -166,7 +157,6 @@ func TestValidateTOTP_ExpiredCode(t *testing.T) {
 	}
 
 	config := DefaultConfig()
-	// Generate code for 2 time windows ago (should be expired)
 	expiredTime := time.Now().Add(-2 * time.Duration(config.Period) * time.Second)
 
 	code, err := GenerateTOTP(secret, expiredTime, config)
@@ -174,7 +164,6 @@ func TestValidateTOTP_ExpiredCode(t *testing.T) {
 		t.Fatalf("Failed to generate TOTP: %v", err)
 	}
 
-	// Should NOT be valid
 	valid, err := ValidateTOTP(secret, code, config)
 	if err != nil {
 		t.Fatalf("Failed to validate TOTP: %v", err)
