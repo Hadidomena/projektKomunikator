@@ -99,7 +99,7 @@ func TestLoginHandler_HoneypotTriggered(t *testing.T) {
 func TestLoginHandler_BlockedAccount(t *testing.T) {
 	_, loginTracker := setupLoginTest(t)
 	for i := 0; i < 5; i++ {
-		loginTracker.RecordFailedAttempt("blocked@test.com", "127.0.0.1")
+		loginTracker.RecordFailedAttempt("blocked@test.com")
 	}
 
 	w := postLogin(t, map[string]string{"email": "blocked@test.com", "password": "password"})
@@ -111,7 +111,7 @@ func TestLoginHandler_BlockedAccount(t *testing.T) {
 
 func TestLoginHandler_LockedAccount(t *testing.T) {
 	_, loginTracker := setupLoginTest(t)
-	loginTracker.RecordFailedAttempt("locked@test.com", "127.0.0.1")
+	loginTracker.RecordFailedAttempt("locked@test.com")
 
 	w := postLogin(t, map[string]string{"email": "locked@test.com", "password": "password"})
 

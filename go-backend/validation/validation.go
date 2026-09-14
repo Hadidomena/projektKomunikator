@@ -10,7 +10,6 @@ import (
 
 type LoginAttempt struct {
 	Timestamp time.Time
-	IP        string
 }
 
 type AccountStatus struct {
@@ -45,7 +44,7 @@ func (t *LoginAttemptTracker) getDB() *sql.DB {
 	return t.db
 }
 
-func (t *LoginAttemptTracker) RecordFailedAttempt(email, ip string) (bool, time.Duration, bool, error) {
+func (t *LoginAttemptTracker) RecordFailedAttempt(email string) (bool, time.Duration, bool, error) {
 	if db := t.getDB(); db != nil {
 		return recordFailedAttemptDB(db, email)
 	}
@@ -69,7 +68,6 @@ func (t *LoginAttemptTracker) RecordFailedAttempt(email, ip string) (bool, time.
 
 	status.FailedAttempts = append(status.FailedAttempts, LoginAttempt{
 		Timestamp: time.Now(),
-		IP:        ip,
 	})
 
 	cutoff := time.Now().Add(-10 * time.Minute)

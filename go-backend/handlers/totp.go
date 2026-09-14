@@ -454,8 +454,7 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 		Scan(&userID, &passwordHash, &encryptedTotpSecret, &totpEnabled)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			ip := GetClientIP(r)
-			ctx.LoginTracker.RecordFailedAttempt(emailAddr, ip)
+			ctx.LoginTracker.RecordFailedAttempt(emailAddr)
 
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
@@ -480,10 +479,9 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !passwordValid {
-		ip := GetClientIP(r)
-		isLocked, lockDuration, isBlocked, _ := ctx.LoginTracker.RecordFailedAttempt(emailAddr, ip)
+		isLocked, lockDuration, isBlocked, _ := ctx.LoginTracker.RecordFailedAttempt(emailAddr)
 
-		log.Printf("Failed 2FA login attempt for user: %s from IP: %s", emailAddr, ip)
+		log.Printf("Failed 2FA login attempt for user: %s from IP: %s", emailAddr, GetClientIP(r))
 
 		if isBlocked {
 			w.Header().Set("Content-Type", "application/json")
@@ -534,10 +532,9 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !valid {
-		ip := GetClientIP(r)
-		isLocked, lockDuration, isBlocked, _ := ctx.LoginTracker.RecordFailedAttempt(emailAddr, ip)
+		isLocked, lockDuration, isBlocked, _ := ctx.LoginTracker.RecordFailedAttempt(emailAddr)
 
-		log.Printf("Invalid 2FA code for user: %s from IP: %s", emailAddr, ip)
+		log.Printf("Invalid 2FA code for user: %s from IP: %s", emailAddr, GetClientIP(r))
 
 		if isBlocked {
 			w.Header().Set("Content-Type", "application/json")

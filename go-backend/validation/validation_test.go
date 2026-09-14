@@ -8,7 +8,6 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 )
 
-// TestValidateEmail tests email validation
 func TestValidateEmail(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -38,7 +37,6 @@ func TestValidateEmail(t *testing.T) {
 	}
 }
 
-// TestCheckEmailExists tests email existence check in database
 func TestCheckEmailExists(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -113,13 +111,11 @@ func TestCheckEmailExists(t *testing.T) {
 	}
 }
 
-// TestLoginAttemptTracker_FirstAttempt tests the first failed login attempt
 func TestLoginAttemptTracker_FirstAttempt(t *testing.T) {
 	tracker := NewLoginAttemptTracker()
 	email := "test@example.com"
-	ip := "192.168.1.1"
 
-	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt(email, ip)
+	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt(email)
 
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
@@ -135,20 +131,15 @@ func TestLoginAttemptTracker_FirstAttempt(t *testing.T) {
 	}
 }
 
-// TestLoginAttemptTracker_ThreeAttempts tests three failed login attempts
 func TestLoginAttemptTracker_ThreeAttempts(t *testing.T) {
 	tracker := NewLoginAttemptTracker()
 	email := "test@example.com"
-	ip := "192.168.1.1"
 
-	// First attempt
-	tracker.RecordFailedAttempt(email, ip)
+	tracker.RecordFailedAttempt(email)
 
-	// Second attempt
-	tracker.RecordFailedAttempt(email, ip)
+	tracker.RecordFailedAttempt(email)
 
-	// Third attempt
-	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt(email, ip)
+	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt(email)
 
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
@@ -164,19 +155,15 @@ func TestLoginAttemptTracker_ThreeAttempts(t *testing.T) {
 	}
 }
 
-// TestLoginAttemptTracker_FiveAttempts tests five failed login attempts leading to permanent block
 func TestLoginAttemptTracker_FiveAttempts(t *testing.T) {
 	tracker := NewLoginAttemptTracker()
 	email := "test@example.com"
-	ip := "192.168.1.1"
 
-	// Record 4 attempts
 	for i := 0; i < 4; i++ {
-		tracker.RecordFailedAttempt(email, ip)
+		tracker.RecordFailedAttempt(email)
 	}
 
-	// Fifth attempt should block permanently
-	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt(email, ip)
+	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt(email)
 
 	if err == nil {
 		t.Error("Expected error for blocked account")
@@ -192,20 +179,16 @@ func TestLoginAttemptTracker_FiveAttempts(t *testing.T) {
 	}
 }
 
-// TestLoginAttemptTracker_CheckAccountStatus tests checking account status
 func TestLoginAttemptTracker_CheckAccountStatus(t *testing.T) {
 	tracker := NewLoginAttemptTracker()
 	email := "test@example.com"
-	ip := "192.168.1.1"
 
-	// Initially, account should not be locked
 	isLocked, remainingTime, isBlocked, _ := tracker.CheckAccountStatus(email)
 	if isLocked || isBlocked {
 		t.Error("New account should not be locked or blocked")
 	}
 
-	// After one failed attempt, should be locked
-	tracker.RecordFailedAttempt(email, ip)
+	tracker.RecordFailedAttempt(email)
 	isLocked, remainingTime, isBlocked, _ = tracker.CheckAccountStatus(email)
 	if !isLocked {
 		t.Error("Account should be locked after failed attempt")
@@ -217,9 +200,8 @@ func TestLoginAttemptTracker_CheckAccountStatus(t *testing.T) {
 		t.Errorf("Expected remaining time around 1 minute, got %v", remainingTime)
 	}
 
-	// After 5 attempts, should be blocked
 	for i := 0; i < 4; i++ {
-		tracker.RecordFailedAttempt(email, ip)
+		tracker.RecordFailedAttempt(email)
 	}
 	isLocked, remainingTime, isBlocked, _ = tracker.CheckAccountStatus(email)
 	if !isLocked {
@@ -233,74 +215,59 @@ func TestLoginAttemptTracker_CheckAccountStatus(t *testing.T) {
 	}
 }
 
-// TestLoginAttemptTracker_ResetAttempts tests resetting attempts on successful login
 func TestLoginAttemptTracker_ResetAttempts(t *testing.T) {
 	tracker := NewLoginAttemptTracker()
 	email := "test@example.com"
-	ip := "192.168.1.1"
 
-	// Record some failed attempts
-	tracker.RecordFailedAttempt(email, ip)
-	tracker.RecordFailedAttempt(email, ip)
+	tracker.RecordFailedAttempt(email)
+	tracker.RecordFailedAttempt(email)
 
-	// Verify account is locked
 	isLocked, _, _, _ := tracker.CheckAccountStatus(email)
 	if !isLocked {
 		t.Error("Account should be locked after failed attempts")
 	}
 
-	// Reset attempts
 	tracker.ResetAttempts(email)
 
-	// Check status should show unlocked
 	isLocked, _, _, _ = tracker.CheckAccountStatus(email)
 	if isLocked {
 		t.Error("Account should not be locked after reset")
 	}
 }
 
-// TestLoginAttemptTracker_ConcurrentAccess tests thread-safe concurrent access
 func TestLoginAttemptTracker_ConcurrentAccess(t *testing.T) {
 	tracker := NewLoginAttemptTracker()
 	email := "test@example.com"
 
 	done := make(chan bool)
 
-	// Launch multiple goroutines that try to record attempts
 	for i := 0; i < 10; i++ {
 		go func(id int) {
-			ip := fmt.Sprintf("192.168.1.%d", id)
-			tracker.RecordFailedAttempt(email, ip)
+			tracker.RecordFailedAttempt(email)
 			tracker.CheckAccountStatus(email)
 			done <- true
 		}(i)
 	}
 
-	// Wait for all goroutines to complete
 	for i := 0; i < 10; i++ {
 		<-done
 	}
 
-	// Just verify no panic occurred and account is in some locked/blocked state
 	isLocked, _, _, _ := tracker.CheckAccountStatus(email)
 	if !isLocked {
 		t.Error("Account should be locked after concurrent attempts")
 	}
 }
 
-// TestLoginAttemptTracker_MultipleAccounts tests tracking multiple accounts independently
 func TestLoginAttemptTracker_MultipleAccounts(t *testing.T) {
 	tracker := NewLoginAttemptTracker()
 	email1 := "user1@example.com"
 	email2 := "user2@example.com"
-	ip := "192.168.1.1"
 
-	// Record different number of attempts for different accounts
-	tracker.RecordFailedAttempt(email1, ip)
-	tracker.RecordFailedAttempt(email2, ip)
-	tracker.RecordFailedAttempt(email2, ip)
+	tracker.RecordFailedAttempt(email1)
+	tracker.RecordFailedAttempt(email2)
+	tracker.RecordFailedAttempt(email2)
 
-	// Check status for each account - both should be locked
 	isLocked1, _, _, _ := tracker.CheckAccountStatus(email1)
 	isLocked2, _, _, _ := tracker.CheckAccountStatus(email2)
 
@@ -309,7 +276,6 @@ func TestLoginAttemptTracker_MultipleAccounts(t *testing.T) {
 	}
 }
 
-// TestGetSanitizedError tests sanitized error messages
 func TestGetSanitizedError(t *testing.T) {
 	tests := []struct {
 		errorType        string
@@ -342,12 +308,10 @@ func TestGetSanitizedError(t *testing.T) {
 		t.Run(tt.errorType, func(t *testing.T) {
 			message := GetSanitizedError(tt.errorType)
 
-			// Check if message is not empty
 			if message == "" {
 				t.Error("Sanitized error message should not be empty")
 			}
 
-			// Message should not contain specific technical details
 			for _, forbidden := range tt.shouldNotContain {
 				if containsIgnoreCase(message, forbidden) {
 					t.Errorf("Error message should not contain '%s': %s", forbidden, message)
@@ -357,7 +321,6 @@ func TestGetSanitizedError(t *testing.T) {
 	}
 }
 
-// Helper function to check if a string contains a substring (case-insensitive)
 func containsIgnoreCase(s, substr string) bool {
 	s = toLower(s)
 	substr = toLower(substr)

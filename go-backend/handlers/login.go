@@ -118,8 +118,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			ip := r.RemoteAddr
-			ctx.LoginTracker.RecordFailedAttempt(emailAddr, ip)
+			ctx.LoginTracker.RecordFailedAttempt(emailAddr)
 
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
@@ -144,10 +143,9 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !passwordValid {
-		ip := r.RemoteAddr
-		isLocked, lockDuration, isBlocked, _ := ctx.LoginTracker.RecordFailedAttempt(emailAddr, ip)
+		isLocked, lockDuration, isBlocked, _ := ctx.LoginTracker.RecordFailedAttempt(emailAddr)
 
-		log.Printf("Failed login attempt for user: %s from IP: %s", emailAddr, ip)
+		log.Printf("Failed login attempt for user: %s from IP: %s", emailAddr, GetClientIP(r))
 
 		if isBlocked {
 			w.Header().Set("Content-Type", "application/json")

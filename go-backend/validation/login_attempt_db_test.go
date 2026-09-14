@@ -113,7 +113,7 @@ func TestLoginAttemptTrackerDB_RecordFailedAttempt_Locks(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
 		WillReturnRows(rows)
 
-	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt("user@test.com", "192.168.1.1")
+	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt("user@test.com")
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestLoginAttemptTrackerDB_RecordFailedAttempt_ThreeAttempts(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
 		WillReturnRows(rows)
 
-	_, lockDuration, _, err := tracker.RecordFailedAttempt("user@test.com", "192.168.1.1")
+	_, lockDuration, _, err := tracker.RecordFailedAttempt("user@test.com")
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestLoginAttemptTrackerDB_RecordFailedAttempt_Blocks(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
 		WillReturnRows(rows)
 
-	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt("user@test.com", "192.168.1.1")
+	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt("user@test.com")
 	if err == nil {
 		t.Error("Expected error for permanently blocked account")
 	}
@@ -181,7 +181,7 @@ func TestLoginAttemptTrackerDB_RecordFailedAttempt_AlreadyBlocked(t *testing.T) 
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
 		WillReturnRows(sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked"}))
 
-	isLocked, _, isBlocked, err := tracker.RecordFailedAttempt("user@test.com", "192.168.1.1")
+	isLocked, _, isBlocked, err := tracker.RecordFailedAttempt("user@test.com")
 	if err == nil {
 		t.Error("Expected error for already blocked account")
 	}
