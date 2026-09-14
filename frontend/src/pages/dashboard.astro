@@ -1,6 +1,3 @@
----
-// Dashboard with messaging and attachments support
----
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -165,7 +162,6 @@
     let myFingerprint: string | null = null;
     let currentPage = 1;
     let totalPages = 1;
-    let isLoadingMore = false;
 
     function renderMarkdown(content: string): string {
       try {
@@ -729,15 +725,15 @@
       });
     });
 
-    async function loadMessages() {
+    async function loadMessages(page = 1) {
+      currentPage = page;
       const container = document.getElementById('messageContainer')!;
-      currentPage = 1;
       container.innerHTML = '<div class="loading">Loading messages...</div>';
 
       const endpoint = currentTab === 'inbox' ? '/api/messages' : '/api/messages/sent';
 
       try {
-        const response = await fetch(`${API_URL}${endpoint}?page=${currentPage}&limit=20`, {
+        const response = await fetch(`${API_URL}${endpoint}?page=${page}&limit=20`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -756,74 +752,18 @@
           return;
         }
 
-        container.innerHTML = '<div class="message-list"></div>';
-        const messageList = container.querySelector('.message-list')!;
+        const messageList = document.createElement('div');
+        messageList.className = 'message-list';
 
         for (const msg of messages) {
-          const messageItem = document.createElement('div');
-          messageItem.className = `message-item ${!msg.is_read && currentTab === 'inbox' ? 'unread' : ''}`;
-          messageItem.setAttribute('data-message-id', msg.id);
-
-          const fromEmail = currentTab === 'inbox' ? msg.sender_email : msg.receiver_email;
-
-          let preview = '[Encrypted message]';
-          let isEncrypted = false;
-          try {
-            const keyForDecryption = currentTab === 'inbox'
-              ? (msg.dh_public_key || '')
-              : (msg.receiver_public_key || '');
-            const parsed = await parseMessageContent(msg.content, keyForDecryption);
-            preview = parsed.content.length > 100 ? parsed.content.substring(0, 100) + '...' : parsed.content;
-            isEncrypted = parsed.encrypted;
-          } catch (e) {
-            preview = msg.content.length > 100 ? msg.content.substring(0, 100) + '...' : msg.content;
-          }
-
-          messageItem.innerHTML = `
-            <div class="message-header">
-              <span class="message-from">${escapeHtml(currentTab === 'inbox' ? 'From' : 'To')}: ${escapeHtml(fromEmail)} ${isEncrypted ? '🔒' : ''}</span>
-              <span class="message-date">${escapeHtml(new Date(msg.created_at).toLocaleString())}</span>
-            </div>
-            <div class="message-preview">${escapeHtml(preview)}</div>
-          `;
-
-          messageItem.addEventListener('click', () => openMessage(msg.id));
-          messageList.appendChild(messageItem);
+          messageList.appendChild(await buildMessageItem(msg));
         }
 
-        // Pagination controls
+        container.innerHTML = '';
+        container.appendChild(messageList);
+
         if (pagination && totalPages > 1) {
-          const nav = document.createElement('div');
-          nav.style.cssText = 'display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px; padding: 15px;';
-
-          const prevBtn = document.createElement('button');
-          prevBtn.textContent = '← Previous';
-          prevBtn.disabled = currentPage <= 1;
-          prevBtn.addEventListener('click', async () => {
-            if (currentPage <= 1) return;
-            currentPage--;
-            container.innerHTML = '<div class="loading">Loading...</div>';
-            await loadPage(currentPage);
-          });
-
-          const pageInfo = document.createElement('span');
-          pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
-          pageInfo.style.cssText = 'font-size: 14px; color: #666;';
-
-          const nextBtn = document.createElement('button');
-          nextBtn.textContent = 'Next →';
-          nextBtn.disabled = currentPage >= totalPages;
-          nextBtn.addEventListener('click', async () => {
-            if (currentPage >= totalPages) return;
-            currentPage++;
-            container.innerHTML = '<div class="loading">Loading...</div>';
-            await loadPage(currentPage);
-          });
-
-          nav.appendChild(prevBtn);
-          nav.appendChild(pageInfo);
-          nav.appendChild(nextBtn);
-          container.appendChild(nav);
+          container.appendChild(buildPaginationNav(page));
         }
       } catch (error) {
         console.error('Load messages error:', error);
@@ -831,87 +771,60 @@
       }
     }
 
-    async function loadPage(page: number) {
-      currentPage = page;
-      const container = document.getElementById('messageContainer')!;
-      const endpoint = currentTab === 'inbox' ? '/api/messages' : '/api/messages/sent';
+    async function buildMessageItem(msg: any): Promise<HTMLElement> {
+      const messageItem = document.createElement('div');
+      messageItem.className = `message-item ${!msg.is_read && currentTab === 'inbox' ? 'unread' : ''}`;
+      messageItem.setAttribute('data-message-id', msg.id);
 
+      const fromEmail = currentTab === 'inbox' ? msg.sender_email : msg.receiver_email;
+
+      let preview = '[Encrypted message]';
+      let isEncrypted = false;
       try {
-        const response = await fetch(`${API_URL}${endpoint}?page=${page}&limit=20`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        if (!response.ok) throw new Error('Failed to load messages');
-
-        const data = await response.json();
-        const messages = data.messages || data;
-        const pagination = data.pagination;
-
-        if (pagination) {
-          totalPages = pagination.total_pages;
-        }
-
-        container.innerHTML = '<div class="message-list"></div>';
-        const messageList = container.querySelector('.message-list')!;
-
-        for (const msg of messages) {
-          const messageItem = document.createElement('div');
-          messageItem.className = `message-item ${!msg.is_read && currentTab === 'inbox' ? 'unread' : ''}`;
-          messageItem.setAttribute('data-message-id', msg.id);
-
-          const fromEmail = currentTab === 'inbox' ? msg.sender_email : msg.receiver_email;
-
-          let preview = '[Encrypted message]';
-          let isEncrypted = false;
-          try {
-            const keyForDecryption = currentTab === 'inbox'
-              ? (msg.dh_public_key || '')
-              : (msg.receiver_public_key || '');
-            const parsed = await parseMessageContent(msg.content, keyForDecryption);
-            preview = parsed.content.length > 100 ? parsed.content.substring(0, 100) + '...' : parsed.content;
-            isEncrypted = parsed.encrypted;
-          } catch (e) {
-            preview = msg.content.length > 100 ? msg.content.substring(0, 100) + '...' : msg.content;
-          }
-
-          messageItem.innerHTML = `
-            <div class="message-header">
-              <span class="message-from">${escapeHtml(currentTab === 'inbox' ? 'From' : 'To')}: ${escapeHtml(fromEmail)} ${isEncrypted ? '🔒' : ''}</span>
-              <span class="message-date">${escapeHtml(new Date(msg.created_at).toLocaleString())}</span>
-            </div>
-            <div class="message-preview">${escapeHtml(preview)}</div>
-          `;
-
-          messageItem.addEventListener('click', () => openMessage(msg.id));
-          messageList.appendChild(messageItem);
-        }
-
-        if (pagination && totalPages > 1) {
-          const nav = document.createElement('div');
-          nav.style.cssText = 'display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px; padding: 15px;';
-
-          const prevBtn = document.createElement('button');
-          prevBtn.textContent = '← Previous';
-          prevBtn.disabled = page <= 1;
-          prevBtn.addEventListener('click', () => loadPage(page - 1));
-
-          const pageInfo = document.createElement('span');
-          pageInfo.textContent = `Page ${page} of ${totalPages}`;
-          pageInfo.style.cssText = 'font-size: 14px; color: #666;';
-
-          const nextBtn = document.createElement('button');
-          nextBtn.textContent = 'Next →';
-          nextBtn.disabled = page >= totalPages;
-          nextBtn.addEventListener('click', () => loadPage(page + 1));
-
-          nav.appendChild(prevBtn);
-          nav.appendChild(pageInfo);
-          nav.appendChild(nextBtn);
-          container.appendChild(nav);
-        }
-      } catch (error) {
-        console.error('Load page error:', error);
+        const keyForDecryption = currentTab === 'inbox'
+          ? (msg.dh_public_key || '')
+          : (msg.receiver_public_key || '');
+        const parsed = await parseMessageContent(msg.content, keyForDecryption);
+        preview = parsed.content.length > 100 ? parsed.content.substring(0, 100) + '...' : parsed.content;
+        isEncrypted = parsed.encrypted;
+      } catch (e) {
+        preview = msg.content.length > 100 ? msg.content.substring(0, 100) + '...' : msg.content;
       }
+
+      messageItem.innerHTML = `
+        <div class="message-header">
+          <span class="message-from">${escapeHtml(currentTab === 'inbox' ? 'From' : 'To')}: ${escapeHtml(fromEmail)} ${isEncrypted ? '🔒' : ''}</span>
+          <span class="message-date">${escapeHtml(new Date(msg.created_at).toLocaleString())}</span>
+        </div>
+        <div class="message-preview">${escapeHtml(preview)}</div>
+      `;
+
+      messageItem.addEventListener('click', () => openMessage(msg.id));
+      return messageItem;
+    }
+
+    function buildPaginationNav(page: number): HTMLElement {
+      const nav = document.createElement('div');
+      nav.style.cssText = 'display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px; padding: 15px;';
+
+      const prevBtn = document.createElement('button');
+      prevBtn.textContent = '← Previous';
+      prevBtn.disabled = page <= 1;
+      prevBtn.addEventListener('click', () => loadMessages(page - 1));
+
+      const pageInfo = document.createElement('span');
+      pageInfo.textContent = `Page ${page} of ${totalPages}`;
+      pageInfo.style.cssText = 'font-size: 14px; color: #666;';
+
+      const nextBtn = document.createElement('button');
+      nextBtn.textContent = 'Next →';
+      nextBtn.disabled = page >= totalPages;
+      nextBtn.addEventListener('click', () => loadMessages(page + 1));
+
+      nav.appendChild(prevBtn);
+      nav.appendChild(pageInfo);
+      nav.appendChild(nextBtn);
+      return nav;
     }
 
     async function openMessage(messageId: number) {
