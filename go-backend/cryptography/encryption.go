@@ -14,7 +14,6 @@ import (
 
 var encryptionKey []byte
 
-// InitializeEncryptionKey initializes the encryption key from the master secret
 // This should be called once during application startup
 func InitializeEncryptionKey(masterSecret string) error {
 	if masterSecret == "" {
@@ -33,7 +32,6 @@ func InitializeEncryptionKey(masterSecret string) error {
 	return nil
 }
 
-// EncryptSensitiveData encrypts sensitive data using AES-256-GCM
 // This should be used for encrypting TOTP secrets, password reset tokens, etc.
 func EncryptSensitiveData(plaintext string) (string, error) {
 	if encryptionKey == nil || len(encryptionKey) != 32 {
@@ -64,7 +62,6 @@ func EncryptSensitiveData(plaintext string) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// DecryptSensitiveData decrypts sensitive data encrypted with EncryptSensitiveData
 func DecryptSensitiveData(ciphertextB64 string) (string, error) {
 	if encryptionKey == nil || len(encryptionKey) != 32 {
 		return "", fmt.Errorf("encryption key not initialized")
@@ -103,7 +100,6 @@ func DecryptSensitiveData(ciphertextB64 string) (string, error) {
 	return string(plaintext), nil
 }
 
-// EncryptWithKey encrypts data with a provided key using AES-256-GCM
 func EncryptWithKey(plaintext string, key []byte) (string, error) {
 	if len(key) != 32 {
 		return "", fmt.Errorf("key must be 32 bytes for AES-256")
@@ -133,7 +129,6 @@ func EncryptWithKey(plaintext string, key []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// DeriveKeyFromPassword derives a 32-byte encryption key from a password using HKDF
 func DeriveKeyFromPassword(password string, userID int) ([]byte, error) {
 	if password == "" {
 		return nil, fmt.Errorf("password cannot be empty")
@@ -156,7 +151,6 @@ func DeriveKeyFromPassword(password string, userID int) ([]byte, error) {
 	return key, nil
 }
 
-// EncryptForUser encrypts sensitive data using a key derived from the user's password
 func EncryptForUser(plaintext, password string, userID int) (string, error) {
 	key, err := DeriveKeyFromPassword(password, userID)
 	if err != nil {

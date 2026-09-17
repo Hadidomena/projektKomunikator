@@ -15,19 +15,16 @@ const (
 	CleanupInterval   = 5 * time.Minute
 )
 
-// Token represents a CSRF token with its expiration time
 type Token struct {
 	Value      string
 	Expiration time.Time
 }
 
-// TokenStore manages CSRF tokens in memory
 type TokenStore struct {
 	tokens map[string]*Token // key: session ID or user ID
 	mu     sync.RWMutex
 }
 
-// NewTokenStore creates a new CSRF token store
 func NewTokenStore() *TokenStore {
 	store := &TokenStore{
 		tokens: make(map[string]*Token),
@@ -38,7 +35,6 @@ func NewTokenStore() *TokenStore {
 	return store
 }
 
-// GenerateToken generates a new cryptographically secure CSRF token
 func GenerateToken() (string, error) {
 	bytes := make([]byte, TokenLength)
 	_, err := rand.Read(bytes)
@@ -49,7 +45,6 @@ func GenerateToken() (string, error) {
 	return base64.URLEncoding.EncodeToString(bytes), nil
 }
 
-// CreateToken creates a new CSRF token for a user/session and stores it
 func (ts *TokenStore) CreateToken(userID string, expiration time.Duration) (string, error) {
 	if expiration == 0 {
 		expiration = DefaultExpiration
@@ -71,7 +66,6 @@ func (ts *TokenStore) CreateToken(userID string, expiration time.Duration) (stri
 	return token, nil
 }
 
-// ValidateToken validates a CSRF token for a user/session
 func (ts *TokenStore) ValidateToken(userID string, providedToken string) bool {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
@@ -88,7 +82,6 @@ func (ts *TokenStore) ValidateToken(userID string, providedToken string) bool {
 	return subtle.ConstantTimeCompare([]byte(storedToken.Value), []byte(providedToken)) == 1
 }
 
-// cleanupExpiredTokens periodically removes expired tokens
 func (ts *TokenStore) cleanupExpiredTokens() {
 	ticker := time.NewTicker(CleanupInterval)
 	defer ticker.Stop()

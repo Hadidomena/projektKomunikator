@@ -118,7 +118,6 @@
         if (response.ok) {
           if (data.requires_totp) {
             totpSection.classList.add('active');
-            // Disable email/password fields during 2FA verification
             (document.getElementById('email') as HTMLInputElement).disabled = true;
             (document.getElementById('password') as HTMLInputElement).disabled = true;
             loginBtn.disabled = true;

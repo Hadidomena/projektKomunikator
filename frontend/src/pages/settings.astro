@@ -45,7 +45,6 @@
   </div>
 
   <div class="container">
-    <!-- 2FA Section -->
     <div class="section">
       <h2>🔐 Two-Factor Authentication (2FA)</h2>
       <p>Enhance your account security with TOTP-based 2FA</p>
@@ -73,7 +72,6 @@
       </div>
     </div>
 
-    <!-- Login History -->
     <div class="section">
       <h2>📊 Login History</h2>
       <p>Recent login attempts from your account</p>
@@ -82,7 +80,6 @@
       </div>
     </div>
 
-    <!-- Honeypot Stats (Admin) -->
     <div class="section">
       <h2>🍯 Security Stats</h2>
       <p>Bot detection statistics</p>
@@ -112,7 +109,6 @@
       }
     }
 
-    // Fetch CSRF token for protected operations
     async function fetchCSRFToken() {
       try {
         const response = await fetch(`${API_URL}/api/csrf-token`, {
@@ -127,7 +123,6 @@
       }
     }
 
-    // Check 2FA status and load data
     async function init() {
       await fetchCSRFToken();
       await check2FAStatus();
@@ -145,7 +140,6 @@
         if (response.ok) {
           const data = await response.json();
 
-          // Hide all sections first
           document.getElementById('totp-disabled')?.classList.add('hidden');
           document.getElementById('totp-setup')?.classList.add('hidden');
           document.getElementById('totp-enabled')?.classList.add('hidden');
@@ -168,7 +162,6 @@
       }
     }
 
-    // 2FA Management
     document.getElementById('enable2faBtn')?.addEventListener('click', async () => {
       const password = prompt('Enter your password to secure the 2FA secret:');
       if (!password) {

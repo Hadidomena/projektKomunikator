@@ -14,14 +14,12 @@ var (
 	tokenExpiration = 1 * time.Hour
 )
 
-// Claims represents the JWT claims
 type Claims struct {
 	UserID int    `json:"user_id"`
 	Email  string `json:"email"`
 	jwt.RegisteredClaims
 }
 
-// InitJWT initializes the JWT secret from environment variable
 func InitJWT() error {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
@@ -36,7 +34,6 @@ func InitJWT() error {
 	return nil
 }
 
-// GenerateToken generates a new JWT token for a user
 func GenerateToken(userID int, email string) (string, error) {
 	if len(jwtSecret) == 0 {
 		return "", errors.New("JWT not initialized")
@@ -63,7 +60,6 @@ func GenerateToken(userID int, email string) (string, error) {
 	return tokenString, nil
 }
 
-// ValidateToken validates a JWT token and returns the claims
 func ValidateToken(tokenString string) (*Claims, error) {
 	if len(jwtSecret) == 0 {
 		return nil, errors.New("JWT not initialized")
@@ -88,7 +84,6 @@ func ValidateToken(tokenString string) (*Claims, error) {
 	return claims, nil
 }
 
-// GetTokenExpiration returns the token expiration duration
 func GetTokenExpiration() time.Duration {
 	return tokenExpiration
 }

@@ -56,7 +56,6 @@
     .message-full .from { font-weight: bold; color: #667eea; margin-bottom: 5px; }
     .message-full .date { font-size: 12px; color: #999; margin-bottom: 15px; }
     .message-full .content { color: #333; line-height: 1.6; margin-bottom: 20px; }
-    /* Markdown content styles */
     .message-full .content p { margin-bottom: 10px; }
     .message-full .content h1, .message-full .content h2, .message-full .content h3 { margin: 15px 0 10px 0; color: #333; }
     .message-full .content h1 { font-size: 1.5em; }
@@ -237,8 +236,6 @@
     }
 
     document.getElementById('userEmail')!.textContent = userEmail;
-
-    // ==================== E2EE CRYPTOGRAPHIC FUNCTIONS ====================
 
     let e2eePepper: string = '';
 
@@ -439,8 +436,6 @@
         e2eeReady = false;
       }
     }
-
-    // ==================== END E2EE FUNCTIONS ====================
 
     async function parseMessageContent(rawContent: string, otherPartyPublicKey: string): Promise<{ content: string, attachments: any[], encrypted: boolean }> {
       try {

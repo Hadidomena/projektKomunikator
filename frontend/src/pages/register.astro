@@ -12,7 +12,6 @@
     #message { margin-top: 10px; }
     a { margin-top: 15px; color: #007bff; text-decoration: none; }
     
-    /* Password strength indicator styles */
     .password-wrapper { position: relative; margin-bottom: 15px; }
     .strength-meter { height: 4px; border-radius: 2px; transition: all 0.3s; margin-top: 5px; background-color: #e0e0e0; }
     .strength-meter.weak { width: 25%; background-color: #f44336; }
@@ -97,12 +96,10 @@
           const strength = await response.json();
           currentStrength = strength;
           
-          // Update strength meter
           strengthMeter.className = `strength-meter ${strength.level}`;
           strengthText.className = `strength-text ${strength.level}`;
           strengthText.textContent = strength.feedback;
 
-          // Update password requirements checklist
           const detailsHTML = `
             <ul>
               <li class="${strength.length >= 12 ? 'check' : 'cross'}">
@@ -144,7 +141,6 @@
       const password = passwordInput.value;
       const messageEl = document.getElementById('message') as HTMLParagraphElement;
 
-      // Check if password is strong enough before submitting
       if (currentStrength && currentStrength.level === 'weak') {
         messageEl.textContent = 'Please choose a stronger password';
         messageEl.style.color = 'red';
@@ -154,7 +150,6 @@
       submitBtn.disabled = true;
       submitBtn.textContent = 'Generating keys...';
 
-      // Get honeypot value
       const website = (document.getElementById('website') as HTMLInputElement).value;
 
       try {

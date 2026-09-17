@@ -201,7 +201,6 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		go email.SendNewDeviceEmail(emailAddr, ip, userAgent)
 	}
 
-	// Check if 2FA is enabled
 	if totpEnabled {
 		log.Printf("2FA required for user: %s", emailAddr)
 		w.Header().Set("Content-Type", "application/json")
@@ -232,7 +231,6 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		"expires_in": jwt_auth.GetTokenExpiration().Seconds(),
 	}
 
-	// Include E2EE keys if they exist
 	if publicKey != "" {
 		response["e2ee_public_key"] = publicKey
 	}
