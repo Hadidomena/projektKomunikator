@@ -88,7 +88,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build Docker image
-        run: docker build -f Dockerfile.prod -t komunikator-backend-prod ./go-backend
+        run: docker build -f go-backend/Dockerfile.prod -t komunikator-backend-prod ./go-backend
 
   docker-frontend:
     name: Docker frontend
@@ -104,7 +104,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build Docker image
-        run: docker build -f Dockerfile.prod -t komunikator-frontend-prod ./frontend
+        run: docker build -f frontend/Dockerfile.prod -t komunikator-frontend-prod ./frontend
 
   docker-database:
     name: Docker database
