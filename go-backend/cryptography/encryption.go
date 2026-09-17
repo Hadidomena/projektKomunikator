@@ -133,45 +133,6 @@ func EncryptWithKey(plaintext string, key []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// DecryptWithKey decrypts data with a provided key using AES-256-GCM
-func DecryptWithKey(ciphertextB64 string, key []byte) (string, error) {
-	if len(key) != 32 {
-		return "", fmt.Errorf("key must be 32 bytes for AES-256")
-	}
-
-	if ciphertextB64 == "" {
-		return "", fmt.Errorf("ciphertext cannot be empty")
-	}
-
-	data, err := base64.StdEncoding.DecodeString(ciphertextB64)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode ciphertext: %w", err)
-	}
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", fmt.Errorf("failed to create cipher block: %w", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("failed to create GCM: %w", err)
-	}
-
-	nonceSize := gcm.NonceSize()
-	if len(data) < nonceSize {
-		return "", fmt.Errorf("ciphertext too short")
-	}
-
-	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to decrypt data: %w", err)
-	}
-
-	return string(plaintext), nil
-}
-
 // DeriveKeyFromPassword derives a 32-byte encryption key from a password using HKDF
 func DeriveKeyFromPassword(password string, userID int) ([]byte, error) {
 	if password == "" {
@@ -203,14 +164,4 @@ func EncryptForUser(plaintext, password string, userID int) (string, error) {
 	}
 
 	return EncryptWithKey(plaintext, key)
-}
-
-// DecryptForUser decrypts using key from users password
-func DecryptForUser(ciphertextB64, password string, userID int) (string, error) {
-	key, err := DeriveKeyFromPassword(password, userID)
-	if err != nil {
-		return "", fmt.Errorf("failed to derive encryption key: %w", err)
-	}
-
-	return DecryptWithKey(ciphertextB64, key)
 }

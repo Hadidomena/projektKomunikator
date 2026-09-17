@@ -152,7 +152,7 @@ func TestDeriveKeyFromPassword(t *testing.T) {
 	}
 }
 
-func TestEncryptDecryptForUser(t *testing.T) {
+func TestEncryptForUser(t *testing.T) {
 	SetPepper("test-pepper-for-testing-purposes-only")
 
 	err := InitializeEncryptionKey("test-master-secret-for-testing-purposes")
@@ -170,24 +170,6 @@ func TestEncryptDecryptForUser(t *testing.T) {
 	}
 	if encrypted == plaintext {
 		t.Errorf("Encrypted data should differ from plaintext")
-	}
-
-	decrypted, err := DecryptForUser(encrypted, password, userID)
-	if err != nil {
-		t.Fatalf("Failed to decrypt: %v", err)
-	}
-	if decrypted != plaintext {
-		t.Errorf("Decrypted data should match original plaintext")
-	}
-
-	_, err = DecryptForUser(encrypted, "wrongPassword", userID)
-	if err == nil {
-		t.Errorf("Decryption with wrong password should fail")
-	}
-
-	_, err = DecryptForUser(encrypted, password, 999)
-	if err == nil {
-		t.Errorf("Decryption with wrong userID should fail")
 	}
 
 	_, err = EncryptForUser("", password, userID)

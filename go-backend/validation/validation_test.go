@@ -183,13 +183,13 @@ func TestLoginAttemptTracker_CheckAccountStatus(t *testing.T) {
 	tracker := NewLoginAttemptTracker()
 	email := "test@example.com"
 
-	isLocked, remainingTime, isBlocked, _ := tracker.CheckAccountStatus(email)
+	isLocked, _, isBlocked, _ := tracker.CheckAccountStatus(email)
 	if isLocked || isBlocked {
 		t.Error("New account should not be locked or blocked")
 	}
 
 	tracker.RecordFailedAttempt(email)
-	isLocked, remainingTime, isBlocked, _ = tracker.CheckAccountStatus(email)
+	isLocked, remainingTime, isBlocked, _ := tracker.CheckAccountStatus(email)
 	if !isLocked {
 		t.Error("Account should be locked after failed attempt")
 	}

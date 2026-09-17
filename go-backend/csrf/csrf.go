@@ -88,31 +88,6 @@ func (ts *TokenStore) ValidateToken(userID string, providedToken string) bool {
 	return subtle.ConstantTimeCompare([]byte(storedToken.Value), []byte(providedToken)) == 1
 }
 
-// DeleteToken removes a token from the store
-func (ts *TokenStore) DeleteToken(userID string) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-
-	delete(ts.tokens, userID)
-}
-
-// GetToken retrieves the current token for a user (if it exists and hasn't expired)
-func (ts *TokenStore) GetToken(userID string) (string, bool) {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-
-	token, exists := ts.tokens[userID]
-	if !exists {
-		return "", false
-	}
-
-	if time.Now().After(token.Expiration) {
-		return "", false
-	}
-
-	return token.Value, true
-}
-
 // cleanupExpiredTokens periodically removes expired tokens
 func (ts *TokenStore) cleanupExpiredTokens() {
 	ticker := time.NewTicker(CleanupInterval)
@@ -128,36 +103,4 @@ func (ts *TokenStore) cleanupExpiredTokens() {
 		}
 		ts.mu.Unlock()
 	}
-}
-
-// Count returns the number of tokens currently stored
-func (ts *TokenStore) Count() int {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-
-	return len(ts.tokens)
-}
-
-// ValidateAndConsume validates a token and removes it (for one-time use tokens)
-func (ts *TokenStore) ValidateAndConsume(userID string, providedToken string) bool {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-
-	storedToken, exists := ts.tokens[userID]
-	if !exists {
-		return false
-	}
-
-	if time.Now().After(storedToken.Expiration) {
-		delete(ts.tokens, userID)
-		return false
-	}
-
-	valid := subtle.ConstantTimeCompare([]byte(storedToken.Value), []byte(providedToken)) == 1
-
-	if valid {
-		delete(ts.tokens, userID)
-	}
-
-	return valid
 }

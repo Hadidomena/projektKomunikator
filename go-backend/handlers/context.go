@@ -24,7 +24,3 @@ func Initialize(db *sql.DB, csrfStore *csrf.TokenStore, loginTracker *validation
 		E2EEPepper:   e2eePepper,
 	}
 }
-
-func GetContext() *HandlerContext {
-	return ctx
-}

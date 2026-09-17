@@ -67,9 +67,6 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx2, cancel2 := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel2()
-
 	emailExists, err := validation.CheckEmailExists(ctx.DB, req.Email)
 	if err != nil {
 		log.Printf("Error checking email existence: %v", err)
@@ -93,7 +90,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx2, cancel2 = context.WithTimeout(r.Context(), 10*time.Second)
+	ctx2, cancel2 := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel2()
 
 	type hashResult struct {

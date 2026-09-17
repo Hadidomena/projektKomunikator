@@ -21,9 +21,7 @@
     button:hover { opacity: 0.9; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
     button.danger { background: linear-gradient(135deg, #f56565 0%, #c53030 100%); }
-    button.success { background: linear-gradient(135deg, #48bb78 0%, #2f855a 100%); }
     .qr-code { text-align: center; margin: 20px 0; }
-    .qr-code img { max-width: 300px; border: 2px solid #ddd; border-radius: 10px; padding: 10px; background: white; }
     .message { margin-top: 15px; padding: 10px; border-radius: 5px; font-size: 14px; display: none; }
     .message.error { background: #fee; color: #c33; border: 1px solid #fcc; display: block; }
     .message.success { background: #efe; color: #3c3; border: 1px solid #cfc; display: block; }
@@ -102,7 +100,6 @@
       window.location.href = '/login';
     }
 
-    let totpEnabled = false;
     let csrfToken = '';
 
     function showMessage(elementId: string, message: string, isError: boolean) {
@@ -147,7 +144,6 @@
 
         if (response.ok) {
           const data = await response.json();
-          totpEnabled = data.enabled;
 
           // Hide all sections first
           document.getElementById('totp-disabled')?.classList.add('hidden');
@@ -270,7 +266,6 @@
         if (response.ok) {
           document.getElementById('totp-setup')?.classList.add('hidden');
           document.getElementById('totp-enabled')?.classList.remove('hidden');
-          totpEnabled = true;
           showMessage('verify2faMessage', '2FA enabled successfully!', false);
         } else {
           showMessage('verify2faMessage', data.message || 'Verification failed', true);
@@ -303,7 +298,6 @@
         if (response.ok) {
           document.getElementById('totp-enabled')?.classList.add('hidden');
           document.getElementById('totp-disabled')?.classList.remove('hidden');
-          totpEnabled = false;
           showMessage('disable2faMessage', '2FA disabled', false);
         } else {
           showMessage('disable2faMessage', data.message || 'Failed to disable 2FA', true);
