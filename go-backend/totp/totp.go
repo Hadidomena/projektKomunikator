@@ -60,12 +60,7 @@ func GenerateTOTP(secret string, timestamp time.Time, config *TOTPConfig) (strin
 	}
 
 	counter := uint64(timestamp.Unix()) / uint64(config.Period)
-	code, err := generateHOTP(key, counter, config.Digits)
-	if err != nil {
-		return "", err
-	}
-
-	return code, nil
+	return generateHOTP(key, counter, config.Digits), nil
 }
 
 // It checks the current time window and adjacent windows to account for clock skew
@@ -108,7 +103,7 @@ func ValidateTOTP(secret string, code string, config *TOTPConfig) (bool, error) 
 	return false, nil
 }
 
-func generateHOTP(key []byte, counter uint64, digits int) (string, error) {
+func generateHOTP(key []byte, counter uint64, digits int) string {
 	counterBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(counterBytes, counter)
 
@@ -122,7 +117,7 @@ func generateHOTP(key []byte, counter uint64, digits int) (string, error) {
 	code := truncated % uint32(math.Pow10(digits))
 
 	format := fmt.Sprintf("%%0%dd", digits)
-	return fmt.Sprintf(format, code), nil
+	return fmt.Sprintf(format, code)
 }
 
 func GenerateQRCodeURL(accountName, issuer, secret string) string {

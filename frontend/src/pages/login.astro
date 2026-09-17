@@ -86,6 +86,64 @@
       messageEl.style.display = 'block';
     }
 
+    async function storeSession(data: any, email: string, password: string, successText: string) {
+      localStorage.setItem('jwt_token', data.token);
+      localStorage.setItem('user_email', email);
+      localStorage.setItem('user_id', data.user_id);
+
+      if (data.e2ee_public_key) {
+        localStorage.setItem('e2ee_public_key', data.e2ee_public_key);
+      }
+
+      const encryptedPrivateKeyB64 = data.e2ee_private_key_encrypted || localStorage.getItem(`e2ee_private_key_${email}`);
+      if (data.e2ee_private_key_encrypted) {
+        localStorage.setItem(`e2ee_private_key_${email}`, data.e2ee_private_key_encrypted);
+      }
+
+      if (encryptedPrivateKeyB64) {
+        try {
+          const encryptedData = Uint8Array.from(atob(encryptedPrivateKeyB64), c => c.charCodeAt(0));
+          const salt = encryptedData.slice(0, 16);
+          const iv = encryptedData.slice(16, 28);
+          const ciphertext = encryptedData.slice(28);
+
+          const encoder = new TextEncoder();
+          const passwordKey = await crypto.subtle.importKey(
+            'raw',
+            encoder.encode(password),
+            { name: 'PBKDF2' },
+            false,
+            ['deriveBits', 'deriveKey']
+          );
+
+          const aesKey = await crypto.subtle.deriveKey(
+            { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+            passwordKey,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['decrypt']
+          );
+
+          const decryptedPrivateKey = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv },
+            aesKey,
+            ciphertext
+          );
+
+          const privateKeyB64 = btoa(String.fromCharCode(...new Uint8Array(decryptedPrivateKey)));
+          sessionStorage.setItem('e2ee_private_key_pkcs8', privateKeyB64);
+          console.log('E2EE private key decrypted successfully');
+        } catch (e) {
+          console.error('Failed to decrypt E2EE private key:', e);
+        }
+      } else {
+        console.warn('No E2EE private key available - encryption will not work');
+      }
+
+      showMessage(successText, false);
+      setTimeout(() => window.location.href = '/dashboard', 1000);
+    }
+
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       
@@ -125,62 +183,7 @@
             showMessage('Please enter your 2FA code', false);
             (document.getElementById('totpCode') as HTMLInputElement).focus();
           } else {
-            localStorage.setItem('jwt_token', data.token);
-            localStorage.setItem('user_email', email);
-            localStorage.setItem('user_id', data.user_id);
-            
-            if (data.e2ee_public_key) {
-              localStorage.setItem('e2ee_public_key', data.e2ee_public_key);
-            }
-            
-            let encryptedPrivateKeyB64 = data.e2ee_private_key_encrypted || localStorage.getItem(`e2ee_private_key_${email}`);
-            
-            if (data.e2ee_private_key_encrypted) {
-              localStorage.setItem(`e2ee_private_key_${email}`, data.e2ee_private_key_encrypted);
-            }
-            
-            if (encryptedPrivateKeyB64) {
-              try {
-                const encryptedData = Uint8Array.from(atob(encryptedPrivateKeyB64), c => c.charCodeAt(0));
-                const salt = encryptedData.slice(0, 16);
-                const iv = encryptedData.slice(16, 28);
-                const ciphertext = encryptedData.slice(28);
-                
-                const encoder = new TextEncoder();
-                const passwordKey = await crypto.subtle.importKey(
-                  'raw',
-                  encoder.encode(password),
-                  { name: 'PBKDF2' },
-                  false,
-                  ['deriveBits', 'deriveKey']
-                );
-                
-                const aesKey = await crypto.subtle.deriveKey(
-                  { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
-                  passwordKey,
-                  { name: 'AES-GCM', length: 256 },
-                  false,
-                  ['decrypt']
-                );
-                
-                const decryptedPrivateKey = await crypto.subtle.decrypt(
-                  { name: 'AES-GCM', iv },
-                  aesKey,
-                  ciphertext
-                );
-                
-                const privateKeyB64 = btoa(String.fromCharCode(...new Uint8Array(decryptedPrivateKey)));
-                sessionStorage.setItem('e2ee_private_key_pkcs8', privateKeyB64);
-                console.log('E2EE private key decrypted successfully from server');
-              } catch (e) {
-                console.error('Failed to decrypt E2EE private key:', e);
-              }
-            } else {
-              console.warn('No E2EE private key available - encryption will not work');
-            }
-            
-            showMessage('Login successful! Redirecting...', false);
-            setTimeout(() => window.location.href = '/dashboard', 1000);
+            await storeSession(data, email, password, 'Login successful! Redirecting...');
           }
         } else {
           showMessage(data.message || 'Login failed', true);
@@ -222,60 +225,7 @@
         const data = await response.json();
 
         if (response.ok) {
-          localStorage.setItem('jwt_token', data.token);
-          localStorage.setItem('user_email', email);
-          localStorage.setItem('user_id', data.user_id);
-          
-          if (data.e2ee_public_key) {
-            localStorage.setItem('e2ee_public_key', data.e2ee_public_key);
-          }
-          
-          const encryptedPrivateKeyB64 = data.e2ee_private_key_encrypted || localStorage.getItem(`e2ee_private_key_${email}`);
-        
-          if (data.e2ee_private_key_encrypted) {
-            localStorage.setItem(`e2ee_private_key_${email}`, data.e2ee_private_key_encrypted);
-          }
-          
-          if (encryptedPrivateKeyB64) {
-            try {
-              const encryptedData = Uint8Array.from(atob(encryptedPrivateKeyB64), c => c.charCodeAt(0));
-              const salt = encryptedData.slice(0, 16);
-              const iv = encryptedData.slice(16, 28);
-              const ciphertext = encryptedData.slice(28);
-              
-              const encoder = new TextEncoder();
-              const passwordKey = await crypto.subtle.importKey(
-                'raw',
-                encoder.encode(password),
-                { name: 'PBKDF2' },
-                false,
-                ['deriveBits', 'deriveKey']
-              );
-              
-              const aesKey = await crypto.subtle.deriveKey(
-                { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
-                passwordKey,
-                { name: 'AES-GCM', length: 256 },
-                false,
-                ['decrypt']
-              );
-              
-              const decryptedPrivateKey = await crypto.subtle.decrypt(
-                { name: 'AES-GCM', iv },
-                aesKey,
-                ciphertext
-              );
-              
-              const privateKeyB64 = btoa(String.fromCharCode(...new Uint8Array(decryptedPrivateKey)));
-              sessionStorage.setItem('e2ee_private_key_pkcs8', privateKeyB64);
-              console.log('E2EE private key decrypted successfully (2FA)');
-            } catch (e) {
-              console.error('Failed to decrypt E2EE private key:', e);
-            }
-          }
-          
-          showMessage('2FA verification successful! Redirecting...', false);
-          setTimeout(() => window.location.href = '/dashboard', 1000);
+          await storeSession(data, email, password, '2FA verification successful! Redirecting...');
         } else {
           showMessage(data.message || '2FA verification failed', true);
         }

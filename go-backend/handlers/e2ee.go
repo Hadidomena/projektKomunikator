@@ -24,16 +24,13 @@ type CSRFTokenResponse struct {
 }
 
 func GetE2EEKeysHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 
 	userID, _, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
@@ -46,74 +43,56 @@ func GetE2EEKeysHandler(w http.ResponseWriter, r *http.Request) {
 		userID).Scan(&publicKey, &privateKeyEncrypted)
 	if err != nil {
 		log.Printf("Failed to get E2EE keys for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve E2EE keys"})
+		writeError(w, http.StatusInternalServerError, "Failed to retrieve E2EE keys")
 		return
 	}
 
 	if publicKey == "" || privateKeyEncrypted == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "E2EE keys not found - please re-register your account"})
+		writeError(w, http.StatusNotFound, "E2EE keys not found - please re-register your account")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(E2EEKeysResponse{
+	writeJSON(w, http.StatusOK, E2EEKeysResponse{
 		PublicKey:           publicKey,
 		PrivateKeyEncrypted: privateKeyEncrypted,
 	})
 }
 
 func E2EEConfigHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 
 	_, _, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	writeJSON(w, http.StatusOK, map[string]string{
 		"pepper": ctx.E2EEPepper,
 	})
 }
 
 func GetUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 
 	_, _, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
 	email := r.URL.Query().Get("email")
 	if email == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Email parameter is required"})
+		writeError(w, http.StatusBadRequest, "Email parameter is required")
 		return
 	}
 
 	if !validation.ValidateEmail(email) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid email format"})
+		writeError(w, http.StatusBadRequest, "Invalid email format")
 		return
 	}
 
@@ -126,43 +105,32 @@ func GetUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 		strings.ToLower(email)).Scan(&publicKey)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "User not found"})
+			writeError(w, http.StatusNotFound, "User not found")
 			return
 		}
 		log.Printf("Failed to get public key for user %s: %v", email, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve public key"})
+		writeError(w, http.StatusInternalServerError, "Failed to retrieve public key")
 		return
 	}
 
 	if publicKey == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "User does not have E2EE keys configured"})
+		writeError(w, http.StatusNotFound, "User does not have E2EE keys configured")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	writeJSON(w, http.StatusOK, map[string]string{
 		"e2ee_public_key": publicKey,
 	})
 }
 
 func UpdateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
@@ -172,23 +140,17 @@ func UpdateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request"})
+		writeError(w, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
 	if req.E2EEPublicKey == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Public key is required"})
+		writeError(w, http.StatusBadRequest, "Public key is required")
 		return
 	}
 
 	if !ctx.CSRFStore.ValidateToken(userEmail, req.CSRFToken) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
+		writeError(w, http.StatusForbidden, "Invalid CSRF token")
 		return
 	}
 
@@ -200,61 +162,45 @@ func UpdateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 		req.E2EEPublicKey, userID)
 	if err != nil {
 		log.Printf("Failed to update public key for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to update public key"})
+		writeError(w, http.StatusInternalServerError, "Failed to update public key")
 		return
 	}
 
 	log.Printf("Updated E2EE public key for user %d", userID)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	writeJSON(w, http.StatusOK, map[string]string{
 		"message": "Public key updated successfully",
 	})
 }
 
 func CSRFTokenHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
 	token, err := ctx.CSRFStore.CreateToken(userEmail, 15*time.Minute)
 	if err != nil {
 		log.Printf("Failed to create CSRF token for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to generate CSRF token"})
+		writeError(w, http.StatusInternalServerError, "Failed to generate CSRF token")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(CSRFTokenResponse{Token: token})
+	writeJSON(w, http.StatusOK, CSRFTokenResponse{Token: token})
 }
 
 func GetE2EEFingerprintHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 
 	userID, _, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
@@ -266,48 +212,37 @@ func GetE2EEFingerprintHandler(w http.ResponseWriter, r *http.Request) {
 		"SELECT COALESCE(e2ee_public_key, '') FROM Users WHERE id = $1",
 		userID).Scan(&publicKey)
 	if err != nil || publicKey == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "E2EE not configured"})
+		writeError(w, http.StatusNotFound, "E2EE not configured")
 		return
 	}
 
 	hash := sha256.Sum256([]byte(publicKey))
 	fingerprint := hex.EncodeToString(hash[:])
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	writeJSON(w, http.StatusOK, map[string]string{
 		"fingerprint": fingerprint,
 	})
 }
 
 func GetUserFingerprintHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 
 	_, _, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Authentication required"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
 	email := r.URL.Query().Get("email")
 	if email == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Email parameter is required"})
+		writeError(w, http.StatusBadRequest, "Email parameter is required")
 		return
 	}
 
 	if !validation.ValidateEmail(email) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid email format"})
+		writeError(w, http.StatusBadRequest, "Invalid email format")
 		return
 	}
 
@@ -320,31 +255,23 @@ func GetUserFingerprintHandler(w http.ResponseWriter, r *http.Request) {
 		strings.ToLower(email)).Scan(&publicKey)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "User not found"})
+			writeError(w, http.StatusNotFound, "User not found")
 			return
 		}
 		log.Printf("Failed to get public key for fingerprint: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to retrieve fingerprint"})
+		writeError(w, http.StatusInternalServerError, "Failed to retrieve fingerprint")
 		return
 	}
 
 	if publicKey == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "User does not have E2EE configured"})
+		writeError(w, http.StatusNotFound, "User does not have E2EE configured")
 		return
 	}
 
 	hash := sha256.Sum256([]byte(publicKey))
 	fingerprint := hex.EncodeToString(hash[:])
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	writeJSON(w, http.StatusOK, map[string]string{
 		"email":       strings.ToLower(email),
 		"fingerprint": fingerprint,
 	})

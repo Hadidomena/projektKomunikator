@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -31,24 +30,18 @@ func GetLoginHistoryHandler(w http.ResponseWriter, r *http.Request, userID int, 
 	history, err := login_monitoring.GetLoginHistory(ctx.DB, userID, 20)
 	if err != nil {
 		log.Printf("Error fetching login history: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to fetch login history"})
+		writeError(w, http.StatusInternalServerError, "Failed to fetch login history")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(history)
+	writeJSON(w, http.StatusOK, history)
 }
 
 func GetHoneypotStatsHandler(w http.ResponseWriter, r *http.Request, userID int, userEmail string) {
 	stats, err := honeypot.GetHoneypotStats(ctx.DB, time.Now().Add(-30*24*time.Hour))
 	if err != nil {
 		log.Printf("Error fetching honeypot stats: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to fetch statistics"})
+		writeError(w, http.StatusInternalServerError, "Failed to fetch statistics")
 		return
 	}
 
@@ -59,17 +52,13 @@ func GetHoneypotStatsHandler(w http.ResponseWriter, r *http.Request, userID int,
 		stats["top_ips"] = topIPs
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(stats)
+	writeJSON(w, http.StatusOK, stats)
 }
 
 func LoginHistoryHandler(w http.ResponseWriter, r *http.Request) {
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 	GetLoginHistoryHandler(w, r, userID, userEmail)
@@ -78,17 +67,13 @@ func LoginHistoryHandler(w http.ResponseWriter, r *http.Request) {
 func HoneypotStatsHandler(w http.ResponseWriter, r *http.Request) {
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
 	admin, err := IsAdmin(userID)
 	if err != nil || !admin {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Admin access required"})
+		writeError(w, http.StatusForbidden, "Admin access required")
 		return
 	}
 

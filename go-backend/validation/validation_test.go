@@ -242,11 +242,11 @@ func TestLoginAttemptTracker_ConcurrentAccess(t *testing.T) {
 	done := make(chan bool)
 
 	for i := 0; i < 10; i++ {
-		go func(id int) {
+		go func() {
 			tracker.RecordFailedAttempt(email)
 			tracker.CheckAccountStatus(email)
 			done <- true
-		}(i)
+		}()
 	}
 
 	for i := 0; i < 10; i++ {

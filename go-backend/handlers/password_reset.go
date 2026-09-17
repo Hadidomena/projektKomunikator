@@ -22,16 +22,12 @@ func PasswordResetRequestHandler(w http.ResponseWriter, r *http.Request) {
 
 	var req PasswordResetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request"})
+		writeError(w, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
 	if !validation.ValidateEmail(req.Email) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"message": "If the email exists, a reset link has been sent"})
+		writeJSON(w, http.StatusOK, map[string]string{"message": "If the email exists, a reset link has been sent"})
 		return
 	}
 
@@ -40,18 +36,14 @@ func PasswordResetRequestHandler(w http.ResponseWriter, r *http.Request) {
 	var userID int
 	err := ctx.DB.QueryRow("SELECT id FROM Users WHERE email = $1", emailAddr).Scan(&userID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"message": "If the email exists, a reset link has been sent"})
+		writeJSON(w, http.StatusOK, map[string]string{"message": "If the email exists, a reset link has been sent"})
 		return
 	}
 
 	resetToken, err := password_reset.GenerateResetToken(userID)
 	if err != nil {
 		log.Printf("Error generating reset token: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to process request"})
+		writeError(w, http.StatusInternalServerError, "Failed to process request")
 		return
 	}
 
@@ -64,17 +56,13 @@ func PasswordResetRequestHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Printf("Error storing reset token: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to process request"})
+		writeError(w, http.StatusInternalServerError, "Failed to process request")
 		return
 	}
 
 	go email.SendPasswordResetEmail(emailAddr, resetToken.Token)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "If the email exists, a reset link has been sent"})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "If the email exists, a reset link has been sent"})
 }
 
 func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
@@ -85,23 +73,17 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 
 	var req PasswordResetVerify
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request"})
+		writeError(w, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
 	if req.Token == "" || req.NewPassword == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Token and password required"})
+		writeError(w, http.StatusBadRequest, "Token and password required")
 		return
 	}
 
 	if passwordutils.IsViablePassword(req.NewPassword) != 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Password does not meet requirements"})
+		writeError(w, http.StatusBadRequest, "Password does not meet requirements")
 		return
 	}
 
@@ -110,9 +92,7 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 	tx, err := ctx.DB.Begin()
 	if err != nil {
 		log.Printf("Error starting password reset transaction: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to reset password"})
+		writeError(w, http.StatusInternalServerError, "Failed to reset password")
 		return
 	}
 	defer tx.Rollback()
@@ -126,15 +106,11 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 	`, hashedToken).Scan(&userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid or expired token"})
+			writeError(w, http.StatusBadRequest, "Invalid or expired token")
 			return
 		}
 		log.Printf("Error consuming reset token: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to reset password"})
+		writeError(w, http.StatusInternalServerError, "Failed to reset password")
 		return
 	}
 
@@ -145,18 +121,14 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 	`, userID)
 	if err != nil {
 		log.Printf("Error invalidating outstanding reset tokens: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to reset password"})
+		writeError(w, http.StatusInternalServerError, "Failed to reset password")
 		return
 	}
 
 	hashedPassword, err := cryptography.HashPassword(req.NewPassword)
 	if err != nil {
 		log.Printf("Error hashing password: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to reset password"})
+		writeError(w, http.StatusInternalServerError, "Failed to reset password")
 		return
 	}
 
@@ -165,21 +137,15 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		hashedPassword, userID)
 	if err != nil {
 		log.Printf("Error updating password: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to reset password"})
+		writeError(w, http.StatusInternalServerError, "Failed to reset password")
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("Error committing password reset: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to reset password"})
+		writeError(w, http.StatusInternalServerError, "Failed to reset password")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Password reset successful"})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Password reset successful"})
 }

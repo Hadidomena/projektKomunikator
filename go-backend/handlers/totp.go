@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/Hadidomena/projektKomunikator/cryptography"
-	"github.com/Hadidomena/projektKomunikator/honeypot"
 	jwt_auth "github.com/Hadidomena/projektKomunikator/jwt_auth"
 	"github.com/Hadidomena/projektKomunikator/totp"
 	"github.com/Hadidomena/projektKomunikator/validation"
@@ -37,18 +36,13 @@ type TOTPValidateRequest struct {
 }
 
 func TOTPStatusHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 
 	userID, _, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
@@ -57,101 +51,76 @@ func TOTPStatusHandler(w http.ResponseWriter, r *http.Request) {
 	err = ctx.DB.QueryRow(`SELECT totp_enabled, totp_secret FROM Users WHERE id = $1`, userID).Scan(&totpEnabled, &totpSecret)
 	if err != nil {
 		log.Printf("Failed to get 2FA status for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to get 2FA status"})
+		writeError(w, http.StatusInternalServerError, "Failed to get 2FA status")
 		return
 	}
 
 	setupInProgress := totpSecret.Valid && totpSecret.String != "" && !totpEnabled
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"enabled":           totpEnabled,
 		"setup_in_progress": setupInProgress,
 	})
 }
 
 func TOTPSetupHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
 	var req TOTPSetupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if req.Password == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Password is required to secure the 2FA secret"})
+		writeError(w, http.StatusBadRequest, "Password is required to secure the 2FA secret")
 		return
 	}
 
 	if !ctx.CSRFStore.ValidateToken(userEmail, req.CSRFToken) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
+		writeError(w, http.StatusForbidden, "Invalid CSRF token")
 		return
 	}
 
 	secret, err := totp.GenerateSecret()
 	if err != nil {
 		log.Printf("Failed to generate TOTP secret for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to generate 2FA secret"})
+		writeError(w, http.StatusInternalServerError, "Failed to generate 2FA secret")
 		return
 	}
 
 	encryptedSecretForDB, err := cryptography.EncryptSensitiveData(secret)
 	if err != nil {
 		log.Printf("Failed to encrypt TOTP secret for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to setup 2FA"})
+		writeError(w, http.StatusInternalServerError, "Failed to setup 2FA")
 		return
 	}
 
 	_, err = ctx.DB.Exec(`UPDATE Users SET totp_secret = $1 WHERE id = $2`, encryptedSecretForDB, userID)
 	if err != nil {
 		log.Printf("Failed to store TOTP secret for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to setup 2FA"})
+		writeError(w, http.StatusInternalServerError, "Failed to setup 2FA")
 		return
 	}
 
 	encryptedSecretForUser, err := cryptography.EncryptForUser(secret, req.Password, userID)
 	if err != nil {
 		log.Printf("Failed to encrypt TOTP secret for transmission to user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to setup 2FA"})
+		writeError(w, http.StatusInternalServerError, "Failed to setup 2FA")
 		return
 	}
 
 	qrCodeURL := totp.GenerateQRCodeURL(userEmail, "Komunikator", secret)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	writeJSON(w, http.StatusOK, map[string]string{
 		"secret":           secret,
 		"encrypted_secret": encryptedSecretForUser,
 		"qr_code":          qrCodeURL,
@@ -159,33 +128,24 @@ func TOTPSetupHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func TOTPVerifyHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
 	var req TOTPVerifyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if !ctx.CSRFStore.ValidateToken(userEmail, req.CSRFToken) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
+		writeError(w, http.StatusForbidden, "Invalid CSRF token")
 		return
 	}
 
@@ -193,25 +153,19 @@ func TOTPVerifyHandler(w http.ResponseWriter, r *http.Request) {
 	err = ctx.DB.QueryRow(`SELECT totp_secret FROM Users WHERE id = $1`, userID).Scan(&encryptedTotpSecret)
 	if err != nil {
 		log.Printf("Failed to retrieve TOTP secret for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "2FA not setup"})
+		writeError(w, http.StatusInternalServerError, "2FA not setup")
 		return
 	}
 
 	if encryptedTotpSecret == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Please setup 2FA first"})
+		writeError(w, http.StatusBadRequest, "Please setup 2FA first")
 		return
 	}
 
 	totpSecret, err := cryptography.DecryptSensitiveData(encryptedTotpSecret)
 	if err != nil {
 		log.Printf("Failed to decrypt TOTP secret for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to verify 2FA"})
+		writeError(w, http.StatusInternalServerError, "Failed to verify 2FA")
 		return
 	}
 
@@ -221,70 +175,51 @@ func TOTPVerifyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if verificationCode == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Verification code is required"})
+		writeError(w, http.StatusBadRequest, "Verification code is required")
 		return
 	}
 
 	valid, err := totp.ValidateTOTP(totpSecret, verificationCode, totp.DefaultConfig())
 	if err != nil {
 		log.Printf("Failed to validate TOTP for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Validation failed"})
+		writeError(w, http.StatusInternalServerError, "Validation failed")
 		return
 	}
 
 	if !valid {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid 2FA code"})
+		writeError(w, http.StatusUnauthorized, "Invalid 2FA code")
 		return
 	}
 
 	_, err = ctx.DB.Exec(`UPDATE Users SET totp_enabled = TRUE, totp_verified_at = NOW() WHERE id = $1`, userID)
 	if err != nil {
 		log.Printf("Failed to enable 2FA for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to enable 2FA"})
+		writeError(w, http.StatusInternalServerError, "Failed to enable 2FA")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "2FA enabled successfully"})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "2FA enabled successfully"})
 }
 
 func TOTPDisableHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Unauthorized"})
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
 	var req TOTPVerifyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if !ctx.CSRFStore.ValidateToken(userEmail, req.CSRFToken) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid CSRF token"})
+		writeError(w, http.StatusForbidden, "Invalid CSRF token")
 		return
 	}
 
@@ -293,9 +228,7 @@ func TOTPDisableHandler(w http.ResponseWriter, r *http.Request) {
 		verificationCode = req.TOTPCode
 	}
 	if verificationCode == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "TOTP code is required to disable 2FA"})
+		writeError(w, http.StatusBadRequest, "TOTP code is required to disable 2FA")
 		return
 	}
 
@@ -303,115 +236,61 @@ func TOTPDisableHandler(w http.ResponseWriter, r *http.Request) {
 	err = ctx.DB.QueryRow(`SELECT totp_secret FROM Users WHERE id = $1`, userID).Scan(&encryptedTotpSecret)
 	if err != nil {
 		log.Printf("Failed to retrieve TOTP secret for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to disable 2FA"})
+		writeError(w, http.StatusInternalServerError, "Failed to disable 2FA")
 		return
 	}
 
 	if encryptedTotpSecret == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "2FA not enabled"})
+		writeError(w, http.StatusBadRequest, "2FA not enabled")
 		return
 	}
 
 	totpSecret, err := cryptography.DecryptSensitiveData(encryptedTotpSecret)
 	if err != nil {
 		log.Printf("Failed to decrypt TOTP secret for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to disable 2FA"})
+		writeError(w, http.StatusInternalServerError, "Failed to disable 2FA")
 		return
 	}
 
 	valid, err := totp.ValidateTOTP(totpSecret, verificationCode, totp.DefaultConfig())
 	if err != nil {
 		log.Printf("Failed to validate TOTP for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Validation failed"})
+		writeError(w, http.StatusInternalServerError, "Validation failed")
 		return
 	}
 
 	if !valid {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid TOTP code"})
+		writeError(w, http.StatusUnauthorized, "Invalid TOTP code")
 		return
 	}
 
 	_, err = ctx.DB.Exec(`UPDATE Users SET totp_enabled = FALSE, totp_secret = NULL WHERE id = $1`, userID)
 	if err != nil {
 		log.Printf("Failed to disable 2FA for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to disable 2FA"})
+		writeError(w, http.StatusInternalServerError, "Failed to disable 2FA")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "2FA disabled successfully"})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "2FA disabled successfully"})
 }
 
 func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Method not allowed"})
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
 	var req TOTPValidateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request body"})
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	honeypotTriggered := honeypot.CheckHoneypot(req.Website) ||
-		honeypot.CheckHoneypot(req.Phone) ||
-		honeypot.CheckHoneypot(req.MiddleName)
-
-	if honeypotTriggered {
-		ip := GetClientIP(r)
-		honeypotValue := req.Website
-		if req.Phone != "" {
-			honeypotValue = req.Phone
-		} else if req.MiddleName != "" {
-			honeypotValue = req.MiddleName
-		}
-
-		honeypotAttempt := &honeypot.HoneypotAttempt{
-			IPAddress:     ip,
-			UserAgent:     r.UserAgent(),
-			HoneypotField: "login_honeypot",
-			HoneypotValue: honeypotValue,
-			SubmittedData: map[string]interface{}{
-				"email":       req.Email,
-				"website":     req.Website,
-				"phone":       req.Phone,
-				"middle_name": req.MiddleName,
-			},
-			Blocked: true,
-		}
-
-		honeypot.RecordHoneypotAttempt(ctx.DB, honeypotAttempt)
-		log.Printf("2FA login honeypot triggered from IP: %s, email: %s", ip, req.Email)
-
-		time.Sleep(500 * time.Millisecond)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
+	if loginHoneypotTriggered(w, r, req.Email, req.Website, req.Phone, req.MiddleName, "2FA login") {
 		return
 	}
 
 	if !validation.ValidateEmail(req.Email) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid email format"})
+		writeError(w, http.StatusBadRequest, "Invalid email format")
 		return
 	}
 
@@ -420,23 +299,17 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 	isLocked, remainingTime, isBlocked, err := ctx.LoginTracker.CheckAccountStatus(emailAddr)
 	if err != nil {
 		log.Printf("Error checking account status for %s: %v", emailAddr, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Service temporarily unavailable. Please try again later"})
+		writeError(w, http.StatusServiceUnavailable, "Service temporarily unavailable. Please try again later")
 		return
 	}
 
 	if isBlocked {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("account_blocked")})
+		writeError(w, http.StatusForbidden, validation.GetSanitizedError("account_blocked"))
 		return
 	}
 
 	if isLocked {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(ErrorResponse{
+		writeJSON(w, http.StatusTooManyRequests, ErrorResponse{
 			Message: validation.GetSanitizedError("account_locked"),
 		})
 		log.Printf("2FA login attempt for locked account: %s, remaining time: %v", emailAddr, remainingTime)
@@ -456,25 +329,19 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 		if err == sql.ErrNoRows {
 			ctx.LoginTracker.RecordFailedAttempt(emailAddr)
 
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid credentials"})
+			writeError(w, http.StatusUnauthorized, "Invalid credentials")
 			return
 		}
 
 		log.Printf("Database error during 2FA login: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid credentials"})
+		writeError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
 
 	passwordValid, err := cryptography.VerifyPassword(req.Password, passwordHash)
 	if err != nil {
 		log.Printf("Error verifying password during 2FA login: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("login_failed")})
+		writeError(w, http.StatusInternalServerError, validation.GetSanitizedError("login_failed"))
 		return
 	}
 
@@ -484,50 +351,38 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed 2FA login attempt for user: %s from IP: %s", emailAddr, GetClientIP(r))
 
 		if isBlocked {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("account_blocked")})
+			writeError(w, http.StatusForbidden, validation.GetSanitizedError("account_blocked"))
 			return
 		}
 
 		if isLocked {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(ErrorResponse{
+			writeJSON(w, http.StatusTooManyRequests, ErrorResponse{
 				Message: validation.GetSanitizedError("account_locked"),
 			})
 			log.Printf("Account locked after failed 2FA login: %s, duration: %v", emailAddr, lockDuration)
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid credentials"})
+		writeError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
 
 	if !totpEnabled || encryptedTotpSecret == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid credentials"})
+		writeError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
 
 	totpSecret, err := cryptography.DecryptSensitiveData(encryptedTotpSecret)
 	if err != nil {
 		log.Printf("Failed to decrypt TOTP secret for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Validation failed"})
+		writeError(w, http.StatusInternalServerError, "Validation failed")
 		return
 	}
 
 	valid, err := totp.ValidateTOTP(totpSecret, req.Code, totp.DefaultConfig())
 	if err != nil {
 		log.Printf("Failed to validate TOTP for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Validation failed"})
+		writeError(w, http.StatusInternalServerError, "Validation failed")
 		return
 	}
 
@@ -537,25 +392,19 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Invalid 2FA code for user: %s from IP: %s", emailAddr, GetClientIP(r))
 
 		if isBlocked {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("account_blocked")})
+			writeError(w, http.StatusForbidden, validation.GetSanitizedError("account_blocked"))
 			return
 		}
 
 		if isLocked {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(ErrorResponse{
+			writeJSON(w, http.StatusTooManyRequests, ErrorResponse{
 				Message: validation.GetSanitizedError("account_locked"),
 			})
 			log.Printf("Account locked after invalid 2FA code: %s, duration: %v", emailAddr, lockDuration)
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid 2FA code"})
+		writeError(w, http.StatusUnauthorized, "Invalid 2FA code")
 		return
 	}
 
@@ -566,9 +415,7 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 	token, err := jwt_auth.GenerateToken(userID, emailAddr)
 	if err != nil {
 		log.Printf("Failed to generate JWT token: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Failed to complete login"})
+		writeError(w, http.StatusInternalServerError, "Failed to complete login")
 		return
 	}
 
@@ -582,22 +429,5 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Successful 2FA login for user: %s", emailAddr)
 
-	response := map[string]interface{}{
-		"message":    "Login successful",
-		"token":      token,
-		"user_id":    userID,
-		"email":      emailAddr,
-		"expires_in": jwt_auth.GetTokenExpiration().Seconds(),
-	}
-
-	if publicKey != "" {
-		response["e2ee_public_key"] = publicKey
-	}
-	if privateKeyEncrypted != "" {
-		response["e2ee_private_key_encrypted"] = privateKeyEncrypted
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, loginResponse(userID, emailAddr, token, publicKey, privateKeyEncrypted))
 }
