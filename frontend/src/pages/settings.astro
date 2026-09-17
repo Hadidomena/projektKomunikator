@@ -51,7 +51,7 @@
     <div class="section">
       <h2>🔐 Two-Factor Authentication (2FA)</h2>
       <p>Enhance your account security with TOTP-based 2FA</p>
-      
+
       <div id="totp-disabled" class="hidden">
         <button id="enable2faBtn">Enable 2FA</button>
         <div id="enable2faMessage" class="message"></div>
@@ -183,11 +183,11 @@
       try {
         const response = await fetch(`${API_URL}/api/2fa/setup`, {
           method: 'POST',
-          headers: { 
+          headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             csrf_token: csrfToken,
             password: password
           })
@@ -249,7 +249,7 @@
 
     document.getElementById('verify2faBtn')?.addEventListener('click', async () => {
       const code = (document.getElementById('verifyCode') as HTMLInputElement).value;
-      
+
       if (!code || code.length !== 6) {
         showMessage('verify2faMessage', 'Please enter a valid 6-digit code', true);
         return;
@@ -291,7 +291,7 @@
       try {
         const response = await fetch(`${API_URL}/api/2fa/disable`, {
           method: 'POST',
-          headers: { 
+          headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
