@@ -180,23 +180,19 @@ func recordFailedAttemptDB(db *sql.DB, email string) (bool, time.Duration, bool,
 	var isBlocked bool
 	err := db.QueryRow(`
 		UPDATE Users
-		SET failed_login_attempts = CASE
-				WHEN locked_until IS NULL OR locked_until <= $1 THEN 1
-				ELSE failed_login_attempts + 1
-			END,
+		SET failed_login_attempts = failed_login_attempts + 1,
 			locked_until = CASE
-				WHEN locked_until IS NULL OR locked_until <= $1 THEN $2
 				WHEN failed_login_attempts + 1 >= 5 THEN NULL
-				WHEN failed_login_attempts + 1 >= 3 THEN $3
-				ELSE $2
+				WHEN failed_login_attempts + 1 >= 3 THEN $2
+				ELSE $1
 			END,
 			is_blocked = CASE
-				WHEN NOT (locked_until IS NULL OR locked_until <= $1) AND failed_login_attempts + 1 >= 5 THEN TRUE
+				WHEN failed_login_attempts + 1 >= 5 THEN TRUE
 				ELSE is_blocked
 			END
-		WHERE email = $4 AND is_blocked = FALSE
+		WHERE email = $3 AND is_blocked = FALSE
 		RETURNING failed_login_attempts, is_blocked`,
-		now, now.Add(1*time.Minute), now.Add(5*time.Minute), email,
+		now.Add(1*time.Minute), now.Add(5*time.Minute), email,
 	).Scan(&attempts, &isBlocked)
 	if err != nil {
 		if err == sql.ErrNoRows {

@@ -16,7 +16,6 @@ import (
 
 const (
 	maxMessageContentSize = 25 * 1024 * 1024
-	maxAttachmentSize     = 15 * 1024 * 1024
 )
 
 type PaginationMeta struct {
@@ -53,33 +52,24 @@ func clampPage(page, totalPages int) int {
 }
 
 type SendMessageRequest struct {
-	ReceiverEmail string       `json:"receiver_email"`
-	Content       string       `json:"content"`
-	Signature     string       `json:"signature,omitempty"`
-	CSRFToken     string       `json:"csrf_token"`
-	Attachments   []Attachment `json:"attachments,omitempty"`
-	DHPublicKey   string       `json:"dh_public_key,omitempty"`
+	ReceiverEmail string `json:"receiver_email"`
+	Content       string `json:"content"`
+	Signature     string `json:"signature,omitempty"`
+	CSRFToken     string `json:"csrf_token"`
+	DHPublicKey   string `json:"dh_public_key,omitempty"`
 }
 
 type MessageResponse struct {
-	ID                int          `json:"id"`
-	SenderEmail       string       `json:"sender_email"`
-	ReceiverEmail     string       `json:"receiver_email"`
-	Content           string       `json:"content"`
-	Signature         string       `json:"signature,omitempty"`
-	IsRead            bool         `json:"is_read"`
-	CreatedAt         time.Time    `json:"created_at"`
-	ReadAt            *time.Time   `json:"read_at,omitempty"`
-	Attachments       []Attachment `json:"attachments,omitempty"`
-	DHPublicKey       string       `json:"dh_public_key,omitempty"`
-	ReceiverPublicKey string       `json:"receiver_public_key,omitempty"`
-}
-
-type Attachment struct {
-	Filename    string `json:"filename"`
-	ContentType string `json:"content_type"`
-	Size        int64  `json:"size"`
-	Data        string `json:"data"`
+	ID                int        `json:"id"`
+	SenderEmail       string     `json:"sender_email"`
+	ReceiverEmail     string     `json:"receiver_email"`
+	Content           string     `json:"content"`
+	Signature         string     `json:"signature,omitempty"`
+	IsRead            bool       `json:"is_read"`
+	CreatedAt         time.Time  `json:"created_at"`
+	ReadAt            *time.Time `json:"read_at,omitempty"`
+	DHPublicKey       string     `json:"dh_public_key,omitempty"`
+	ReceiverPublicKey string     `json:"receiver_public_key,omitempty"`
 }
 
 func SendMessageHandler(w http.ResponseWriter, r *http.Request) {
@@ -125,24 +115,11 @@ func SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, att := range req.Attachments {
-		if att.Size > maxAttachmentSize {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "Attachment too large (max 15MB)"})
-			return
-		}
-	}
-
 	if len(req.Content) > maxMessageContentSize {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrorResponse{Message: "Message payload too large (max 25MB)"})
 		return
-	}
-
-	if len(req.Attachments) > 0 {
-		log.Printf("Sending encrypted message with %d attachments from %s to %s", len(req.Attachments), senderEmail, req.ReceiverEmail)
 	}
 
 	ctxDB, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -475,16 +452,16 @@ func GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 	var receiverPublicKey string
 
 	err = ctx.DB.QueryRowContext(ctxDB, `
-		SELECT m.id, u1.email, u2.email, 
+		SELECT m.id, u1.email, u2.email,
 		       m.content, m.encrypted_key, m.message_signature,
 		       m.is_read, m.created_at, m.read_at, COALESCE(m.dh_public_key, ''),
 		       COALESCE(u2.e2ee_public_key, '')
 		FROM Messages m
 		JOIN Users u1 ON m.sender_id = u1.id
 		JOIN Users u2 ON m.receiver_id = u2.id
-		WHERE m.id = $1 
+		WHERE m.id = $1
 		  AND (m.sender_id = $2 OR m.receiver_id = $2)
-		  AND ((m.sender_id = $2 AND m.is_deleted_by_sender = FALSE) 
+		  AND ((m.sender_id = $2 AND m.is_deleted_by_sender = FALSE)
 		       OR (m.receiver_id = $2 AND m.is_deleted_by_receiver = FALSE))
 	`, messageID, userID).Scan(
 		&msg.ID, &senderEmail, &receiverEmail,
@@ -557,7 +534,7 @@ func DeleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	result, err := ctx.DB.ExecContext(ctxDB, `
-		UPDATE Messages 
+		UPDATE Messages
 		SET is_deleted_by_sender = CASE WHEN sender_id = $2 THEN TRUE ELSE is_deleted_by_sender END,
 		    is_deleted_by_receiver = CASE WHEN receiver_id = $2 THEN TRUE ELSE is_deleted_by_receiver END
 		WHERE id = $1 AND (sender_id = $2 OR receiver_id = $2)

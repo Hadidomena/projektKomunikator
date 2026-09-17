@@ -109,8 +109,8 @@ func TestLoginAttemptTrackerDB_RecordFailedAttempt_Locks(t *testing.T) {
 	mock, tracker := newDBTracker(t)
 
 	rows := sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked"}).AddRow(1, false)
-	mock.ExpectQuery("UPDATE Users SET failed_login_attempts").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
+	mock.ExpectQuery("UPDATE Users SET failed_login_attempts = failed_login_attempts \\+ 1").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
 		WillReturnRows(rows)
 
 	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt("user@test.com")
@@ -135,8 +135,8 @@ func TestLoginAttemptTrackerDB_RecordFailedAttempt_ThreeAttempts(t *testing.T) {
 	mock, tracker := newDBTracker(t)
 
 	rows := sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked"}).AddRow(3, false)
-	mock.ExpectQuery("UPDATE Users SET failed_login_attempts").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
+	mock.ExpectQuery("UPDATE Users SET failed_login_attempts = failed_login_attempts \\+ 1").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
 		WillReturnRows(rows)
 
 	_, lockDuration, _, err := tracker.RecordFailedAttempt("user@test.com")
@@ -155,8 +155,8 @@ func TestLoginAttemptTrackerDB_RecordFailedAttempt_Blocks(t *testing.T) {
 	mock, tracker := newDBTracker(t)
 
 	rows := sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked"}).AddRow(5, true)
-	mock.ExpectQuery("UPDATE Users SET failed_login_attempts").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
+	mock.ExpectQuery("UPDATE Users SET failed_login_attempts = failed_login_attempts \\+ 1").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
 		WillReturnRows(rows)
 
 	isLocked, lockDuration, isBlocked, err := tracker.RecordFailedAttempt("user@test.com")
@@ -177,8 +177,8 @@ func TestLoginAttemptTrackerDB_RecordFailedAttempt_Blocks(t *testing.T) {
 func TestLoginAttemptTrackerDB_RecordFailedAttempt_AlreadyBlocked(t *testing.T) {
 	mock, tracker := newDBTracker(t)
 
-	mock.ExpectQuery("UPDATE Users SET failed_login_attempts").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
+	mock.ExpectQuery("UPDATE Users SET failed_login_attempts = failed_login_attempts \\+ 1").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user@test.com").
 		WillReturnRows(sqlmock.NewRows([]string{"failed_login_attempts", "is_blocked"}))
 
 	isLocked, _, isBlocked, err := tracker.RecordFailedAttempt("user@test.com")
