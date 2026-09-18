@@ -1,7 +1,7 @@
-import { API_URL, getToken } from './api';
+import { apiFetch } from './api';
 import { base64ToArrayBuffer, importPublicKey, deriveSharedSecret, deriveMessageKey, encryptMessage, decryptMessage } from './crypto';
 
-export interface ParsedMessage {
+interface ParsedMessage {
   content: string;
   attachments: any[];
   encrypted: boolean;
@@ -46,9 +46,7 @@ export class E2EE {
 
   private async fetchConfig(): Promise<void> {
     try {
-      const response = await fetch('/api/e2ee/config', {
-        headers: { 'Authorization': `Bearer ${getToken()}` }
-      });
+      const response = await apiFetch('/api/e2ee/config');
       if (response.ok) {
         const config = await response.json();
         this.pepper = config.pepper || '';
@@ -60,9 +58,7 @@ export class E2EE {
 
   async getReceiverPublicKey(receiverEmail: string): Promise<string | null> {
     try {
-      const response = await fetch(`${API_URL}/api/user/public-key?email=${encodeURIComponent(receiverEmail)}`, {
-        headers: { 'Authorization': `Bearer ${getToken()}` }
-      });
+      const response = await apiFetch(`/api/user/public-key?email=${encodeURIComponent(receiverEmail)}`);
       if (response.ok) {
         const data = await response.json();
         return data.e2ee_public_key || null;
