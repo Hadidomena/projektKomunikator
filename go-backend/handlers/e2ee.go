@@ -30,7 +30,7 @@ func GetE2EEKeysHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, _, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -65,7 +65,7 @@ func E2EEConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, _, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -81,7 +81,7 @@ func GetUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, _, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -130,7 +130,7 @@ func UpdateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -167,9 +167,7 @@ func UpdateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Updated E2EE public key for user %d", userID)
-	writeJSON(w, http.StatusOK, map[string]string{
-		"message": "Public key updated successfully",
-	})
+	writeMessage(w, http.StatusOK, "Public key updated successfully")
 }
 
 func CSRFTokenHandler(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +177,7 @@ func CSRFTokenHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -200,7 +198,7 @@ func GetE2EEFingerprintHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, _, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -231,7 +229,7 @@ func GetUserFingerprintHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, _, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 

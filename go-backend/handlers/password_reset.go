@@ -14,6 +14,8 @@ import (
 	"github.com/Hadidomena/projektKomunikator/validation"
 )
 
+const resetRequestResponse = "If the email exists, a reset link has been sent"
+
 func PasswordResetRequestHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
@@ -27,7 +29,7 @@ func PasswordResetRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !validation.ValidateEmail(req.Email) {
-		writeJSON(w, http.StatusOK, map[string]string{"message": "If the email exists, a reset link has been sent"})
+		writeMessage(w, http.StatusOK, resetRequestResponse)
 		return
 	}
 
@@ -36,7 +38,7 @@ func PasswordResetRequestHandler(w http.ResponseWriter, r *http.Request) {
 	var userID int
 	err := ctx.DB.QueryRow("SELECT id FROM Users WHERE email = $1", emailAddr).Scan(&userID)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]string{"message": "If the email exists, a reset link has been sent"})
+		writeMessage(w, http.StatusOK, resetRequestResponse)
 		return
 	}
 
@@ -62,7 +64,7 @@ func PasswordResetRequestHandler(w http.ResponseWriter, r *http.Request) {
 
 	go email.SendPasswordResetEmail(emailAddr, resetToken.Token)
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "If the email exists, a reset link has been sent"})
+	writeMessage(w, http.StatusOK, resetRequestResponse)
 }
 
 func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
@@ -147,5 +149,5 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Password reset successful"})
+	writeMessage(w, http.StatusOK, "Password reset successful")
 }

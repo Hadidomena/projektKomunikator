@@ -44,7 +44,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 
 		log.Printf("Honeypot triggered from IP: %s, email: %s", ip, req.Email)
 
-		writeJSON(w, http.StatusCreated, map[string]string{"message": "User registered successfully"})
+		writeMessage(w, http.StatusCreated, "User registered successfully")
 		return
 	}
 
@@ -136,7 +136,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("User registered successfully: %s (ID: %d)", req.Email, userID)
 
-	writeJSON(w, http.StatusCreated, map[string]string{"message": "User registered successfully"})
+	writeMessage(w, http.StatusCreated, "User registered successfully")
 }
 
 func CheckPasswordStrengthHandler(w http.ResponseWriter, r *http.Request) {

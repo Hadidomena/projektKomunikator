@@ -91,24 +91,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !passwordValid {
-		isLocked, lockDuration, isBlocked, _ := ctx.LoginTracker.RecordFailedAttempt(emailAddr)
-
-		log.Printf("Failed login attempt for user: %s from IP: %s", emailAddr, GetClientIP(r))
-
-		if isBlocked {
-			writeError(w, http.StatusForbidden, validation.GetSanitizedError("account_blocked"))
-			return
-		}
-
-		if isLocked {
-			writeJSON(w, http.StatusTooManyRequests, ErrorResponse{
-				Message: validation.GetSanitizedError("account_locked"),
-			})
-			log.Printf("Account locked: %s, duration: %v", emailAddr, lockDuration)
-			return
-		}
-
-		writeError(w, http.StatusUnauthorized, validation.GetSanitizedError("login_failed"))
+		recordFailedLogin(w, r, emailAddr, "Failed login attempt", validation.GetSanitizedError("login_failed"))
 		return
 	}
 
@@ -212,4 +195,25 @@ func loginHoneypotTriggered(w http.ResponseWriter, r *http.Request, email, websi
 	time.Sleep(500 * time.Millisecond)
 	writeError(w, http.StatusUnauthorized, validation.GetSanitizedError("login_failed"))
 	return true
+}
+
+func recordFailedLogin(w http.ResponseWriter, r *http.Request, email, logLabel, unauthorizedMsg string) {
+	isLocked, lockDuration, isBlocked, _ := ctx.LoginTracker.RecordFailedAttempt(email)
+
+	log.Printf("%s for user: %s from IP: %s", logLabel, email, GetClientIP(r))
+
+	if isBlocked {
+		writeError(w, http.StatusForbidden, validation.GetSanitizedError("account_blocked"))
+		return
+	}
+
+	if isLocked {
+		writeJSON(w, http.StatusTooManyRequests, ErrorResponse{
+			Message: validation.GetSanitizedError("account_locked"),
+		})
+		log.Printf("Account locked: %s, duration: %v", email, lockDuration)
+		return
+	}
+
+	writeError(w, http.StatusUnauthorized, unauthorizedMsg)
 }

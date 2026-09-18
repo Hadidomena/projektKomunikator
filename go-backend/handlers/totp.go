@@ -42,7 +42,7 @@ func TOTPStatusHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, _, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -70,7 +70,7 @@ func TOTPSetupHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -134,7 +134,7 @@ func TOTPVerifyHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -198,7 +198,7 @@ func TOTPVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "2FA enabled successfully"})
+	writeMessage(w, http.StatusOK, "2FA enabled successfully")
 }
 
 func TOTPDisableHandler(w http.ResponseWriter, r *http.Request) {
@@ -208,7 +208,7 @@ func TOTPDisableHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -271,7 +271,7 @@ func TOTPDisableHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "2FA disabled successfully"})
+	writeMessage(w, http.StatusOK, "2FA disabled successfully")
 }
 
 func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
@@ -346,24 +346,7 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !passwordValid {
-		isLocked, lockDuration, isBlocked, _ := ctx.LoginTracker.RecordFailedAttempt(emailAddr)
-
-		log.Printf("Failed 2FA login attempt for user: %s from IP: %s", emailAddr, GetClientIP(r))
-
-		if isBlocked {
-			writeError(w, http.StatusForbidden, validation.GetSanitizedError("account_blocked"))
-			return
-		}
-
-		if isLocked {
-			writeJSON(w, http.StatusTooManyRequests, ErrorResponse{
-				Message: validation.GetSanitizedError("account_locked"),
-			})
-			log.Printf("Account locked after failed 2FA login: %s, duration: %v", emailAddr, lockDuration)
-			return
-		}
-
-		writeError(w, http.StatusUnauthorized, "Invalid credentials")
+		recordFailedLogin(w, r, emailAddr, "Failed 2FA login attempt", "Invalid credentials")
 		return
 	}
 
@@ -387,24 +370,7 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !valid {
-		isLocked, lockDuration, isBlocked, _ := ctx.LoginTracker.RecordFailedAttempt(emailAddr)
-
-		log.Printf("Invalid 2FA code for user: %s from IP: %s", emailAddr, GetClientIP(r))
-
-		if isBlocked {
-			writeError(w, http.StatusForbidden, validation.GetSanitizedError("account_blocked"))
-			return
-		}
-
-		if isLocked {
-			writeJSON(w, http.StatusTooManyRequests, ErrorResponse{
-				Message: validation.GetSanitizedError("account_locked"),
-			})
-			log.Printf("Account locked after invalid 2FA code: %s, duration: %v", emailAddr, lockDuration)
-			return
-		}
-
-		writeError(w, http.StatusUnauthorized, "Invalid 2FA code")
+		recordFailedLogin(w, r, emailAddr, "Invalid 2FA code", "Invalid 2FA code")
 		return
 	}
 

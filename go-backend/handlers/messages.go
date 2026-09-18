@@ -79,7 +79,7 @@ func SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	senderID, senderEmail, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -168,7 +168,7 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -243,7 +243,7 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, userEmail, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -327,7 +327,7 @@ func MarkMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, _, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -354,9 +354,7 @@ func MarkMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
-		"message": "Message marked as read",
-	})
+	writeMessage(w, http.StatusOK, "Message marked as read")
 }
 
 func GetMessageHandler(w http.ResponseWriter, r *http.Request) {
@@ -366,7 +364,7 @@ func GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, _, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -440,7 +438,7 @@ func DeleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, _, err := GetUserFromContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Authentication required")
+		writeUnauthorized(w)
 		return
 	}
 
@@ -470,7 +468,5 @@ func DeleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
-		"message": "Message deleted successfully",
-	})
+	writeMessage(w, http.StatusOK, "Message deleted successfully")
 }
