@@ -18,7 +18,3 @@ func writeError(w http.ResponseWriter, status int, message string) {
 func writeMessage(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"message": message})
 }
-
-func writeUnauthorized(w http.ResponseWriter) {
-	writeError(w, http.StatusUnauthorized, "Authentication required")
-}

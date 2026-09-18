@@ -16,7 +16,7 @@ func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
 func requireAuth(w http.ResponseWriter, r *http.Request) (int, string, bool) {
 	userID, email, err := GetUserFromContext(r)
 	if err != nil {
-		writeUnauthorized(w)
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return 0, "", false
 	}
 	return userID, email, true
