@@ -425,7 +425,7 @@ func GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 		msg.Signature = signature.String
 	}
 
-	if !(encryptedKey.Valid && encryptedKey.String == "client-e2ee") {
+	if !encryptedKey.Valid || encryptedKey.String != "client-e2ee" {
 		log.Printf("Warning: Message %d is not marked as encrypted\n", msg.ID)
 	}
 
