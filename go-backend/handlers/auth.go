@@ -16,16 +16,13 @@ import (
 )
 
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
 	var req RegistrationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		writeError(w, http.StatusBadRequest, validation.GetSanitizedError("validation_failed"))
 		return
 	}
 
@@ -47,53 +44,38 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 
 		log.Printf("Honeypot triggered from IP: %s, email: %s", ip, req.Email)
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})
+		writeMessage(w, http.StatusCreated, "User registered successfully")
 		return
 	}
 
 	if req.Username == "" || req.Email == "" || req.Password == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		writeError(w, http.StatusBadRequest, validation.GetSanitizedError("validation_failed"))
 		return
 	}
 
 	if !validation.ValidateEmail(req.Email) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		writeError(w, http.StatusBadRequest, validation.GetSanitizedError("validation_failed"))
 		return
 	}
-
-	ctx2, cancel2 := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel2()
 
 	emailExists, err := validation.CheckEmailExists(ctx.DB, req.Email)
 	if err != nil {
 		log.Printf("Error checking email existence: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
+		writeError(w, http.StatusInternalServerError, validation.GetSanitizedError("registration_failed"))
 		return
 	}
 
 	if emailExists {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
+		writeError(w, http.StatusConflict, validation.GetSanitizedError("registration_failed"))
 		return
 	}
 
 	if passwordutils.IsViablePassword(req.Password) != 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("validation_failed")})
+		writeError(w, http.StatusBadRequest, validation.GetSanitizedError("validation_failed"))
 		return
 	}
 
-	ctx2, cancel2 = context.WithTimeout(r.Context(), 10*time.Second)
+	ctx2, cancel2 := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel2()
 
 	type hashResult struct {
@@ -110,17 +92,13 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	var hashedPassword string
 	select {
 	case <-ctx2.Done():
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusRequestTimeout)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
+		writeError(w, http.StatusRequestTimeout, validation.GetSanitizedError("registration_failed"))
 		log.Printf("Password hashing timeout")
 		return
 	case result := <-hashChan:
 		if result.err != nil {
 			log.Printf("Error hashing password: %v", result.err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
+			writeError(w, http.StatusInternalServerError, validation.GetSanitizedError("registration_failed"))
 			return
 		}
 		hashedPassword = result.hash
@@ -141,36 +119,28 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		req.Username, strings.ToLower(req.Email), hashedPassword, publicKey, privateKeyEncrypted).Scan(&userID)
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
+			writeError(w, http.StatusConflict, validation.GetSanitizedError("registration_failed"))
 			return
 		}
 
 		if ctx2.Err() == context.DeadlineExceeded {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusRequestTimeout)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
+			writeError(w, http.StatusRequestTimeout, validation.GetSanitizedError("registration_failed"))
 			log.Printf("Database operation timeout: %v", err)
 			return
 		}
 
 		log.Printf("Failed to insert user into database: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: validation.GetSanitizedError("registration_failed")})
+		writeError(w, http.StatusInternalServerError, validation.GetSanitizedError("registration_failed"))
 		return
 	}
 
 	log.Printf("User registered successfully: %s (ID: %d)", req.Email, userID)
 
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})
+	writeMessage(w, http.StatusCreated, "User registered successfully")
 }
 
 func CheckPasswordStrengthHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -179,15 +149,11 @@ func CheckPasswordStrengthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "Invalid request"})
+		writeError(w, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
 	strength := passwordutils.GetPasswordStrength(req.Password)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(strength)
+	writeJSON(w, http.StatusOK, strength)
 }

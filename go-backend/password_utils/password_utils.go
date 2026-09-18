@@ -9,12 +9,9 @@ import (
 )
 
 var (
-	// commonPasswords holds the loaded common passwords in memory
 	commonPasswords map[string]struct{}
-	// mu protects the commonPasswords map
-	mu sync.RWMutex
-	// loaded tracks if passwords have been loaded
-	loaded bool
+	mu              sync.RWMutex
+	loaded          bool
 )
 
 func LoadCommonPasswords() error {
@@ -129,20 +126,18 @@ func isCommonPassword(password string) bool {
 	return exists
 }
 
-// PasswordStrength represents the strength analysis of a password
 type PasswordStrength struct {
-	Score      float64 `json:"score"`       // Raw strength score
-	Level      string  `json:"level"`       // weak, fair, good, strong, very_strong
-	IsCommon   bool    `json:"is_common"`   // Is it a commonly used password?
-	Length     int     `json:"length"`      // Password length
-	HasUpper   bool    `json:"has_upper"`   // Contains uppercase letters
-	HasLower   bool    `json:"has_lower"`   // Contains lowercase letters
-	HasNumbers bool    `json:"has_numbers"` // Contains numbers
-	HasSymbols bool    `json:"has_symbols"` // Contains special symbols
-	Feedback   string  `json:"feedback"`    // User-friendly feedback message
+	Score      float64 `json:"score"`
+	Level      string  `json:"level"`
+	IsCommon   bool    `json:"is_common"`
+	Length     int     `json:"length"`
+	HasUpper   bool    `json:"has_upper"`
+	HasLower   bool    `json:"has_lower"`
+	HasNumbers bool    `json:"has_numbers"`
+	HasSymbols bool    `json:"has_symbols"`
+	Feedback   string  `json:"feedback"`
 }
 
-// GetPasswordStrength returns detailed password strength analysis
 func GetPasswordStrength(password string) PasswordStrength {
 	result := PasswordStrength{
 		Length:   len(password),
@@ -204,7 +199,6 @@ func GetPasswordStrength(password string) PasswordStrength {
 	return result
 }
 
-// Externally provided function to check validity of password
 // returns 1 for too short a password,
 // 2 for password from common list
 // 3 for not strong enough password

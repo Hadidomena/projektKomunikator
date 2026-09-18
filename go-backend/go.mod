@@ -1,6 +1,6 @@
 module github.com/Hadidomena/projektKomunikator
 
-go 1.25.3
+go 1.26.1
 
 require (
 	github.com/lib/pq v1.10.9

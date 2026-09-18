@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -18,13 +19,11 @@ const (
 	SecretLength  = 20
 )
 
-// TOTPConfig holds the configuration for TOTP generation and validation
 type TOTPConfig struct {
 	Period int // Time period in seconds
-	Digits int // Number of digits in the code
+	Digits int
 }
 
-// DefaultConfig returns the default TOTP configuration
 func DefaultConfig() *TOTPConfig {
 	return &TOTPConfig{
 		Period: DefaultPeriod,
@@ -32,7 +31,6 @@ func DefaultConfig() *TOTPConfig {
 	}
 }
 
-// GenerateSecret generates a new random secret for TOTP
 func GenerateSecret() (string, error) {
 	secret := make([]byte, SecretLength)
 	_, err := rand.Read(secret)
@@ -46,7 +44,6 @@ func GenerateSecret() (string, error) {
 	return encoded, nil
 }
 
-// GenerateTOTP generates a TOTP code for the given secret and time
 func GenerateTOTP(secret string, timestamp time.Time, config *TOTPConfig) (string, error) {
 	if config == nil {
 		config = DefaultConfig()
@@ -63,15 +60,9 @@ func GenerateTOTP(secret string, timestamp time.Time, config *TOTPConfig) (strin
 	}
 
 	counter := uint64(timestamp.Unix()) / uint64(config.Period)
-	code, err := generateHOTP(key, counter, config.Digits)
-	if err != nil {
-		return "", err
-	}
-
-	return code, nil
+	return generateHOTP(key, counter, config.Digits), nil
 }
 
-// ValidateTOTP validates a TOTP code against the secret
 // It checks the current time window and adjacent windows to account for clock skew
 func ValidateTOTP(secret string, code string, config *TOTPConfig) (bool, error) {
 	if config == nil {
@@ -112,8 +103,7 @@ func ValidateTOTP(secret string, code string, config *TOTPConfig) (bool, error) 
 	return false, nil
 }
 
-// generateHOTP generates an HOTP code (used internally by TOTP)
-func generateHOTP(key []byte, counter uint64, digits int) (string, error) {
+func generateHOTP(key []byte, counter uint64, digits int) string {
 	counterBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(counterBytes, counter)
 
@@ -127,15 +117,15 @@ func generateHOTP(key []byte, counter uint64, digits int) (string, error) {
 	code := truncated % uint32(math.Pow10(digits))
 
 	format := fmt.Sprintf("%%0%dd", digits)
-	return fmt.Sprintf(format, code), nil
+	return fmt.Sprintf(format, code)
 }
 
 func GenerateQRCodeURL(accountName, issuer, secret string) string {
+	label := url.PathEscape(issuer + ":" + accountName)
 	return fmt.Sprintf(
-		"otpauth://totp/%s:%s?secret=%s&issuer=%s&algorithm=SHA1&digits=6&period=30",
-		issuer,
-		accountName,
-		secret,
-		issuer,
+		"otpauth://totp/%s?secret=%s&issuer=%s&algorithm=SHA1&digits=6&period=30",
+		label,
+		url.QueryEscape(secret),
+		url.QueryEscape(issuer),
 	)
 }

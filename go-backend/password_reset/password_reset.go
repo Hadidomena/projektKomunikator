@@ -2,10 +2,16 @@ package password_reset
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"time"
 )
+
+func HashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return base64.URLEncoding.EncodeToString(h[:])
+}
 
 const (
 	TokenLength     = 32
@@ -36,20 +42,4 @@ func GenerateResetToken(userID int) (*ResetToken, error) {
 		Used:      false,
 		CreatedAt: time.Now(),
 	}, nil
-}
-
-func ValidateToken(token string, storedToken *ResetToken) error {
-	if storedToken.Used {
-		return fmt.Errorf("token already used")
-	}
-
-	if time.Now().After(storedToken.ExpiresAt) {
-		return fmt.Errorf("token expired")
-	}
-
-	if storedToken.Token != token {
-		return fmt.Errorf("invalid token")
-	}
-
-	return nil
 }

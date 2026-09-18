@@ -3,3 +3,11 @@ tmp/
 *.log
 .env
 .astro/
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+
+# Real TLS certificates (only .example files are tracked)
+nginx/ssl/cert.pem
+nginx/ssl/key.pem

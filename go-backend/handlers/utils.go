@@ -5,6 +5,14 @@ import (
 	"strings"
 )
 
+func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
+	if r.Method != method {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return false
+	}
+	return true
+}
+
 func GetClientIP(r *http.Request) string {
 	forwarded := r.Header.Get("X-Forwarded-For")
 	if forwarded != "" {
