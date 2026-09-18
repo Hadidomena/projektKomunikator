@@ -317,6 +317,26 @@ func decodeMessageID(w http.ResponseWriter, r *http.Request) (int, bool) {
 	return req.MessageID, true
 }
 
+func execMessageUpdate(w http.ResponseWriter, r *http.Request, userID, messageID int, query, action, notFoundMsg string) bool {
+	ctxDB, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	result, err := ctx.DB.ExecContext(ctxDB, query, messageID, userID)
+	if err != nil {
+		log.Printf("Failed to %s: %v", action, err)
+		writeError(w, http.StatusInternalServerError, "Failed to "+action)
+		return false
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		writeError(w, http.StatusNotFound, notFoundMsg)
+		return false
+	}
+
+	return true
+}
+
 func MarkMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPut) {
 		return
@@ -332,25 +352,11 @@ func MarkMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctxDB, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	result, err := ctx.DB.ExecContext(ctxDB,
+	if execMessageUpdate(w, r, userID, messageID,
 		"UPDATE Messages SET is_read = TRUE, read_at = NOW() WHERE id = $1 AND receiver_id = $2 AND is_read = FALSE",
-		messageID, userID)
-	if err != nil {
-		log.Printf("Failed to mark message as read: %v", err)
-		writeError(w, http.StatusInternalServerError, "Failed to mark message as read")
-		return
+		"mark message as read", "Message not found or already read") {
+		writeMessage(w, http.StatusOK, "Message marked as read")
 	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		writeError(w, http.StatusNotFound, "Message not found or already read")
-		return
-	}
-
-	writeMessage(w, http.StatusOK, "Message marked as read")
 }
 
 func GetMessageHandler(w http.ResponseWriter, r *http.Request) {
@@ -441,26 +447,12 @@ func DeleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctxDB, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	result, err := ctx.DB.ExecContext(ctxDB, `
+	if execMessageUpdate(w, r, userID, messageID, `
 		UPDATE Messages
 		SET is_deleted_by_sender = CASE WHEN sender_id = $2 THEN TRUE ELSE is_deleted_by_sender END,
 		    is_deleted_by_receiver = CASE WHEN receiver_id = $2 THEN TRUE ELSE is_deleted_by_receiver END
 		WHERE id = $1 AND (sender_id = $2 OR receiver_id = $2)
-	`, messageID, userID)
-	if err != nil {
-		log.Printf("Failed to delete message: %v", err)
-		writeError(w, http.StatusInternalServerError, "Failed to delete message")
-		return
+	`, "delete message", "Message not found") {
+		writeMessage(w, http.StatusOK, "Message deleted successfully")
 	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		writeError(w, http.StatusNotFound, "Message not found")
-		return
-	}
-
-	writeMessage(w, http.StatusOK, "Message deleted successfully")
 }
