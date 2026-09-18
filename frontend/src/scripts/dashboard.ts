@@ -1,5 +1,5 @@
 import { API_URL, getToken, getEmail, requireLogin, fetchCSRFToken } from '../lib/api';
-import { base64ToArrayBuffer, importPublicKey, deriveSharedSecret, deriveMessageKey, encryptMessage, decryptMessage } from '../lib/crypto';
+import { E2EE } from '../lib/e2ee';
 
     declare const marked: { parse: (text: string, options?: { async?: boolean }) => string | Promise<string> };
     declare const DOMPurify: { sanitize: (html: string, config?: object) => string };
@@ -8,9 +8,6 @@ import { base64ToArrayBuffer, importPublicKey, deriveSharedSecret, deriveMessage
     let currentTab = 'inbox';
     let csrfToken = '';
 
-    let myPublicKey: string | null = null;
-    let myPrivateKey: CryptoKey | null = null;
-    let e2eeReady = false;
     let myFingerprint: string | null = null;
     let totalPages = 1;
 
@@ -90,185 +87,7 @@ import { base64ToArrayBuffer, importPublicKey, deriveSharedSecret, deriveMessage
 
     document.getElementById('userEmail')!.textContent = userEmail;
 
-    let e2eePepper: string = '';
-
-    async function fetchE2EEConfig(): Promise<void> {
-      try {
-        const response = await fetch('/api/e2ee/config', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const config = await response.json();
-          e2eePepper = config.pepper || '';
-        }
-      } catch (error) {
-        console.error('Failed to fetch E2EE config:', error);
-      }
-    }
-
-    async function getReceiverPublicKey(receiverEmail: string): Promise<string | null> {
-      try {
-        const response = await fetch(`${API_URL}/api/user/public-key?email=${encodeURIComponent(receiverEmail)}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          return data.e2ee_public_key || null;
-        }
-      } catch (error) {
-        console.error('Failed to get receiver public key:', error);
-      }
-      return null;
-    }
-
-      async function e2eeEncryptMessage(content: string, receiverPublicKeyB64: string): Promise<{
-      encryptedContent: string,
-      nonce: string,
-      senderPublicKey: string
-    }> {
-      if (!myPrivateKey || !myPublicKey) {
-        throw new Error('Sender keys not available');
-      }
-
-      const receiverPublicKey = await importPublicKey(receiverPublicKeyB64);
-
-      const sharedSecret = await deriveSharedSecret(myPrivateKey, receiverPublicKey);
-      const sortedKeys = [myPublicKey, receiverPublicKeyB64].sort().join('');
-      const saltData = new TextEncoder().encode(sortedKeys);
-      const saltHash = await crypto.subtle.digest('SHA-256', saltData);
-
-      const messageKey = await deriveMessageKey(sharedSecret, 'message-encryption', saltHash, e2eePepper);
-
-      const { ciphertext, nonce } = await encryptMessage(content, messageKey);
-
-      return {
-        encryptedContent: ciphertext,
-        nonce: nonce,
-        senderPublicKey: myPublicKey
-      };
-    }
-
-    async function e2eeDecryptMessage(
-      encryptedContent: string,
-      nonce: string,
-      otherPartyPublicKeyB64: string
-    ): Promise<string> {
-      if (!myPrivateKey || !myPublicKey) {
-        throw new Error('Private key not available');
-      }
-
-      const otherPartyPublicKey = await importPublicKey(otherPartyPublicKeyB64);
-      const sharedSecret = await deriveSharedSecret(myPrivateKey, otherPartyPublicKey);
-      const sortedKeys = [myPublicKey, otherPartyPublicKeyB64].sort().join('');
-      const saltData = new TextEncoder().encode(sortedKeys);
-      const saltHash = await crypto.subtle.digest('SHA-256', saltData);
-
-      const messageKey = await deriveMessageKey(sharedSecret, 'message-encryption', saltHash, e2eePepper);
-      return decryptMessage(encryptedContent, nonce, messageKey);
-    }
-
-    async function initializeE2EE() {
-      await fetchE2EEConfig();
-
-      myPublicKey = localStorage.getItem('e2ee_public_key');
-      const privateKeyB64 = sessionStorage.getItem('e2ee_private_key_pkcs8');
-
-      if (myPublicKey && privateKeyB64) {
-        try {
-          const privateKeyPkcs8 = base64ToArrayBuffer(privateKeyB64);
-          myPrivateKey = await crypto.subtle.importKey(
-            'pkcs8',
-            privateKeyPkcs8,
-            { name: 'X25519' },
-            false,
-            ['deriveBits']
-          );
-
-          e2eeReady = true;
-          console.log('E2EE initialized successfully');
-        } catch (error) {
-          console.error('Failed to initialize E2EE:', error);
-          e2eeReady = false;
-        }
-      } else {
-        console.warn('E2EE keys not available - please re-login to enable encryption');
-        if (!myPublicKey) console.warn('Missing: e2ee_public_key');
-        if (!privateKeyB64) console.warn('Missing: e2ee_private_key_pkcs8 (session) - re-login required');
-        e2eeReady = false;
-      }
-    }
-
-    async function parseMessageContent(rawContent: string, otherPartyPublicKey: string): Promise<{ content: string, attachments: any[], encrypted: boolean }> {
-      try {
-        let parsed = JSON.parse(rawContent);
-        if (parsed.content && typeof parsed.content === 'string' && parsed.content.trim().startsWith('{')) {
-          try {
-            const innerParsed = JSON.parse(parsed.content);
-            if (innerParsed.encrypted) {
-              parsed = innerParsed;
-            } else if (innerParsed.content !== undefined) {
-              parsed = innerParsed;
-            }
-          } catch {
-          }
-        }
-
-        if (parsed.encrypted && parsed.ciphertext && parsed.nonce) {
-          if (!otherPartyPublicKey) {
-            return {
-              content: '[🔒 Wiadomość zaszyfrowana - brak klucza do odszyfrowania]',
-              attachments: [],
-              encrypted: true
-            };
-          }
-
-          if (!e2eeReady) {
-            return {
-              content: '[🔒 Wiadomość zaszyfrowana - odblokuj E2EE aby odszyfrować]',
-              attachments: [],
-              encrypted: true
-            };
-          }
-
-          try {
-            const decryptedPayload = await e2eeDecryptMessage(parsed.ciphertext, parsed.nonce, otherPartyPublicKey);
-            const decryptedData = JSON.parse(decryptedPayload);
-            return {
-              content: decryptedData.content || '',
-              attachments: decryptedData.attachments || [],
-              encrypted: true
-            };
-          } catch (decryptError) {
-            console.error('Failed to decrypt message:', decryptError);
-            return {
-              content: '[🔒 Wiadomość zaszyfrowana - nie można odszyfrować]',
-              attachments: [],
-              encrypted: true
-            };
-          }
-        }
-
-        if (parsed.content !== undefined && typeof parsed.content === 'string' && !parsed.encrypted) {
-          return {
-            content: parsed.content,
-            attachments: Array.isArray(parsed.attachments) ? parsed.attachments : [],
-            encrypted: false
-          };
-        }
-
-        return {
-          content: rawContent,
-          attachments: [],
-          encrypted: false
-        };
-      } catch (e) {
-        return {
-          content: rawContent,
-          attachments: [],
-          encrypted: false
-        };
-      }
-    }
+    const e2ee = new E2EE();
 
     document.getElementById('logoutBtn')!.addEventListener('click', () => {
       localStorage.removeItem('jwt_token');
@@ -386,12 +205,12 @@ import { base64ToArrayBuffer, importPublicKey, deriveSharedSecret, deriveMessage
         let receiverPublicKeyForMsg = '';
         let encrypted = false;
 
-        if (e2eeReady) {
+        if (e2ee.ready) {
           try {
-            const receiverPublicKey = await getReceiverPublicKey(receiverEmail);
+            const receiverPublicKey = await e2ee.getReceiverPublicKey(receiverEmail);
 
             if (receiverPublicKey) {
-              const encryptedData = await e2eeEncryptMessage(messagePayload, receiverPublicKey);
+              const encryptedData = await e2ee.encrypt(messagePayload, receiverPublicKey);
               finalContent = JSON.stringify({
                 encrypted: true,
                 ciphertext: encryptedData.encryptedContent,
@@ -526,7 +345,7 @@ import { base64ToArrayBuffer, importPublicKey, deriveSharedSecret, deriveMessage
         const keyForDecryption = currentTab === 'inbox'
           ? (msg.dh_public_key || '')
           : (msg.receiver_public_key || '');
-        const parsed = await parseMessageContent(msg.content, keyForDecryption);
+        const parsed = await e2ee.parseMessageContent(msg.content, keyForDecryption);
         preview = parsed.content.length > 100 ? parsed.content.substring(0, 100) + '...' : parsed.content;
         isEncrypted = parsed.encrypted;
       } catch (e) {
@@ -593,7 +412,7 @@ import { base64ToArrayBuffer, importPublicKey, deriveSharedSecret, deriveMessage
           ? (msg.dh_public_key || '')
           : (msg.receiver_public_key || '');
 
-        const parsedContent = await parseMessageContent(msg.content, keyForDecryption);
+        const parsedContent = await e2ee.parseMessageContent(msg.content, keyForDecryption);
         console.log('Parsed content:', {
           content: parsedContent.content?.substring(0, 50),
           attachmentsCount: parsedContent.attachments?.length,
@@ -792,11 +611,11 @@ import { base64ToArrayBuffer, importPublicKey, deriveSharedSecret, deriveMessage
     });
 
     async function initialize() {
-      await initializeE2EE();
+      await e2ee.init();
       await fetchFingerprint();
       await getCsrfToken();
       await loadMessages();
-      if (e2eeReady) {
+      if (e2ee.ready) {
         console.log('✅ E2EE is active - messages will be encrypted');
       } else {
         console.warn('⚠️ E2EE not available - please re-login to enable encryption');
