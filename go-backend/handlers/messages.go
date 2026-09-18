@@ -77,9 +77,8 @@ func SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	senderID, senderEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	senderID, senderEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -114,7 +113,7 @@ func SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	var receiverID int
 	var receiverPublicKey string
-	err = ctx.DB.QueryRowContext(ctxDB,
+	err := ctx.DB.QueryRowContext(ctxDB,
 		"SELECT id, COALESCE(e2ee_public_key, '') FROM Users WHERE email = $1",
 		strings.ToLower(req.ReceiverEmail)).Scan(&receiverID, &receiverPublicKey)
 	if err != nil {
@@ -166,9 +165,8 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, userEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, userEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -178,7 +176,7 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var total int
-	err = ctx.DB.QueryRowContext(ctxDB, `
+	err := ctx.DB.QueryRowContext(ctxDB, `
 		SELECT COUNT(*) FROM Messages m
 		WHERE m.receiver_id = $1 AND m.is_deleted_by_receiver = FALSE
 	`, userID).Scan(&total)
@@ -241,9 +239,8 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, userEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, userEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -253,7 +250,7 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var total int
-	err = ctx.DB.QueryRowContext(ctxDB, `
+	err := ctx.DB.QueryRowContext(ctxDB, `
 		SELECT COUNT(*) FROM Messages m
 		WHERE m.sender_id = $1 AND m.is_deleted_by_sender = FALSE
 	`, userID).Scan(&total)
@@ -325,9 +322,8 @@ func MarkMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, _, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -362,9 +358,8 @@ func GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, _, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -436,9 +431,8 @@ func DeleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, _, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
