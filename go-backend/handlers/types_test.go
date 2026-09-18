@@ -12,7 +12,6 @@ func TestRegistrationRequest(t *testing.T) {
 		Username: "testuser",
 		Email:    "test@example.com",
 		Password: "securePassword123",
-		Website:  "",
 	}
 
 	if req.Username != "testuser" {
