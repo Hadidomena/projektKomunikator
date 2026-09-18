@@ -1,9 +1,7 @@
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width" />
-  <title>Login - Communicator</title>
-  <style>
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+<style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
     .container { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); width: 100%; max-width: 400px; }
@@ -24,9 +22,9 @@
     .totp-section { display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd; }
     .totp-section.active { display: block; }
     .hp-field { position: absolute; left: -9999px; opacity: 0; height: 0; width: 0; z-index: -1; }
-  </style>
-</head>
-<body>
+</style>
+
+<BaseLayout title="Login - Communicator">
   <div class="container">
     <h1>🔐 Login</h1>
     <form id="loginForm">
@@ -72,7 +70,7 @@
   </div>
 
   <script>
-    const API_URL = '';
+    import { API_URL, showMessage as setMessage } from '../lib/api';
 
     const loginForm = document.getElementById('loginForm') as HTMLFormElement;
     const loginBtn = document.getElementById('loginBtn') as HTMLButtonElement;
@@ -81,9 +79,7 @@
     const verifyTotpBtn = document.getElementById('verifyTotpBtn') as HTMLButtonElement;
 
     function showMessage(text: string, isError: boolean = false) {
-      messageEl.textContent = text;
-      messageEl.className = `message ${isError ? 'error' : 'success'}`;
-      messageEl.style.display = 'block';
+      setMessage(messageEl, text, isError);
     }
 
     async function storeSession(data: any, email: string, password: string, successText: string) {
@@ -238,5 +234,4 @@
       }
     });
   </script>
-</body>
-</html>
+</BaseLayout>

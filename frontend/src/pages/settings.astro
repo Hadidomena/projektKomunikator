@@ -1,9 +1,7 @@
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width" />
-  <title>Settings - Communicator</title>
-  <style>
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+<style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; }
     .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
@@ -36,9 +34,9 @@
     .stat-card { background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center; }
     .stat-value { font-size: 32px; font-weight: bold; color: #667eea; }
     .stat-label { font-size: 12px; color: #666; margin-top: 5px; text-transform: uppercase; }
-  </style>
-</head>
-<body>
+</style>
+
+<BaseLayout title="Settings - Communicator">
   <div class="header">
     <h1>⚙️ Settings</h1>
     <a href="/dashboard" class="back-btn">← Back to Dashboard</a>
@@ -90,41 +88,22 @@
   </div>
 
   <script>
-    const API_URL = '';
-    const token = localStorage.getItem('jwt_token');
+    import { API_URL, getToken, requireLogin, fetchCSRFToken as apiFetchCSRFToken, showMessage as setMessage } from '../lib/api';
 
-    if (!token) {
-      window.location.href = '/login';
-    }
-
+    requireLogin();
+    const token = getToken();
     let csrfToken = '';
 
     function showMessage(elementId: string, message: string, isError: boolean) {
       const el = document.getElementById(elementId);
+      setMessage(el, message, isError);
       if (el) {
-        el.textContent = message;
-        el.className = isError ? 'message error' : 'message success';
-        el.style.display = 'block';
         setTimeout(() => { el.style.display = 'none'; }, 5000);
       }
     }
 
-    async function fetchCSRFToken() {
-      try {
-        const response = await fetch(`${API_URL}/api/csrf-token`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          csrfToken = data.csrf_token;
-        }
-      } catch (error) {
-        console.error('Failed to fetch CSRF token:', error);
-      }
-    }
-
     async function init() {
-      await fetchCSRFToken();
+      csrfToken = await apiFetchCSRFToken();
       await check2FAStatus();
       await loadLoginHistory();
       await loadHoneypotStats();
@@ -364,5 +343,4 @@
 
     init();
   </script>
-</body>
-</html>
+</BaseLayout>
