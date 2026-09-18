@@ -62,8 +62,7 @@ func E2EEConfigHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, ok := requireAuth(w, r)
-	if !ok {
+	if !requireAuthOnly(w, r) {
 		return
 	}
 
@@ -77,8 +76,7 @@ func GetUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, ok := requireAuth(w, r)
-	if !ok {
+	if !requireAuthOnly(w, r) {
 		return
 	}
 
@@ -221,8 +219,7 @@ func GetUserFingerprintHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, ok := requireAuth(w, r)
-	if !ok {
+	if !requireAuthOnly(w, r) {
 		return
 	}
 
