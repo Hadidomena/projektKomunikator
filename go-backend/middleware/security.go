@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -129,7 +130,9 @@ func (rl *RateLimiter) RateLimitMiddleware(next http.Handler) http.Handler {
 		if !rl.Allow(ip) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"message":"Too many requests. Please try again later."}`))
+			if _, err := w.Write([]byte(`{"message":"Too many requests. Please try again later."}`)); err != nil {
+				log.Printf("Failed to write rate limit response: %v", err)
+			}
 			return
 		}
 
