@@ -28,9 +28,8 @@ func GetE2EEKeysHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, _, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -38,7 +37,7 @@ func GetE2EEKeysHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var publicKey, privateKeyEncrypted string
-	err = ctx.DB.QueryRowContext(ctxDB,
+	err := ctx.DB.QueryRowContext(ctxDB,
 		"SELECT COALESCE(e2ee_public_key, ''), COALESCE(e2ee_private_key_encrypted, '') FROM Users WHERE id = $1",
 		userID).Scan(&publicKey, &privateKeyEncrypted)
 	if err != nil {
@@ -63,9 +62,8 @@ func E2EEConfigHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	_, _, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -79,9 +77,8 @@ func GetUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	_, _, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -100,7 +97,7 @@ func GetUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var publicKey string
-	err = ctx.DB.QueryRowContext(ctxDB,
+	err := ctx.DB.QueryRowContext(ctxDB,
 		"SELECT COALESCE(e2ee_public_key, '') FROM Users WHERE email = $1",
 		strings.ToLower(email)).Scan(&publicKey)
 	if err != nil {
@@ -128,9 +125,8 @@ func UpdateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, userEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, userEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -157,7 +153,7 @@ func UpdateUserPublicKeyHandler(w http.ResponseWriter, r *http.Request) {
 	ctxDB, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	_, err = ctx.DB.ExecContext(ctxDB,
+	_, err := ctx.DB.ExecContext(ctxDB,
 		"UPDATE Users SET e2ee_public_key = $1 WHERE id = $2",
 		req.E2EEPublicKey, userID)
 	if err != nil {
@@ -175,9 +171,8 @@ func CSRFTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, userEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, userEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -196,9 +191,8 @@ func GetE2EEFingerprintHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, _, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -206,7 +200,7 @@ func GetE2EEFingerprintHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var publicKey string
-	err = ctx.DB.QueryRowContext(ctxDB,
+	err := ctx.DB.QueryRowContext(ctxDB,
 		"SELECT COALESCE(e2ee_public_key, '') FROM Users WHERE id = $1",
 		userID).Scan(&publicKey)
 	if err != nil || publicKey == "" {
@@ -227,9 +221,8 @@ func GetUserFingerprintHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	_, _, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -248,7 +241,7 @@ func GetUserFingerprintHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var publicKey string
-	err = ctx.DB.QueryRowContext(ctxDB,
+	err := ctx.DB.QueryRowContext(ctxDB,
 		"SELECT COALESCE(e2ee_public_key, '') FROM Users WHERE email = $1",
 		strings.ToLower(email)).Scan(&publicKey)
 	if err != nil {
