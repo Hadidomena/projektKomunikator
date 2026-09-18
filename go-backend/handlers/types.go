@@ -9,12 +9,16 @@ type RegistrationRequest struct {
 	E2EEPrivateKeyEncrypted string `json:"e2ee_private_key_encrypted,omitempty"`
 }
 
+type honeypotFields struct {
+	Website    string `json:"website,omitempty"`
+	Phone      string `json:"phone,omitempty"`
+	MiddleName string `json:"middle_name,omitempty"`
+}
+
 type LoginRequest struct {
-	Email      string `json:"email"`
-	Password   string `json:"password"`
-	Website    string `json:"website,omitempty"`     // Honeypot field 1
-	Phone      string `json:"phone,omitempty"`       // Honeypot field 2
-	MiddleName string `json:"middle_name,omitempty"` // Honeypot field 3
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	honeypotFields
 }
 
 type ErrorResponse struct {

@@ -27,12 +27,10 @@ type TOTPVerifyRequest struct {
 }
 
 type TOTPValidateRequest struct {
-	Email      string `json:"email"`
-	Password   string `json:"password"`
-	Code       string `json:"totp_code"`
-	Website    string `json:"website,omitempty"`     // Honeypot field 1
-	Phone      string `json:"phone,omitempty"`       // Honeypot field 2
-	MiddleName string `json:"middle_name,omitempty"` // Honeypot field 3
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Code     string `json:"totp_code"`
+	honeypotFields
 }
 
 func TOTPStatusHandler(w http.ResponseWriter, r *http.Request) {
@@ -40,15 +38,14 @@ func TOTPStatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, _, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
 	var totpEnabled bool
 	var totpSecret sql.NullString
-	err = ctx.DB.QueryRow(`SELECT totp_enabled, totp_secret FROM Users WHERE id = $1`, userID).Scan(&totpEnabled, &totpSecret)
+	err := ctx.DB.QueryRow(`SELECT totp_enabled, totp_secret FROM Users WHERE id = $1`, userID).Scan(&totpEnabled, &totpSecret)
 	if err != nil {
 		log.Printf("Failed to get 2FA status for user %d: %v", userID, err)
 		writeError(w, http.StatusInternalServerError, "Failed to get 2FA status")
@@ -68,9 +65,8 @@ func TOTPSetupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, userEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, userEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -132,9 +128,8 @@ func TOTPVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, userEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, userEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -150,7 +145,7 @@ func TOTPVerifyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var encryptedTotpSecret string
-	err = ctx.DB.QueryRow(`SELECT totp_secret FROM Users WHERE id = $1`, userID).Scan(&encryptedTotpSecret)
+	err := ctx.DB.QueryRow(`SELECT totp_secret FROM Users WHERE id = $1`, userID).Scan(&encryptedTotpSecret)
 	if err != nil {
 		log.Printf("Failed to retrieve TOTP secret for user %d: %v", userID, err)
 		writeError(w, http.StatusInternalServerError, "2FA not setup")
@@ -206,9 +201,8 @@ func TOTPDisableHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, userEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, userEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -233,7 +227,7 @@ func TOTPDisableHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var encryptedTotpSecret string
-	err = ctx.DB.QueryRow(`SELECT totp_secret FROM Users WHERE id = $1`, userID).Scan(&encryptedTotpSecret)
+	err := ctx.DB.QueryRow(`SELECT totp_secret FROM Users WHERE id = $1`, userID).Scan(&encryptedTotpSecret)
 	if err != nil {
 		log.Printf("Failed to retrieve TOTP secret for user %d: %v", userID, err)
 		writeError(w, http.StatusInternalServerError, "Failed to disable 2FA")
