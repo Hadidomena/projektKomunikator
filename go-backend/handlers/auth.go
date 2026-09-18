@@ -40,7 +40,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 			Blocked: true,
 		}
 
-		honeypot.RecordHoneypotAttempt(ctx.DB, honeypotAttempt)
+		_ = honeypot.RecordHoneypotAttempt(ctx.DB, honeypotAttempt)
 
 		log.Printf("Honeypot triggered from IP: %s, email: %s", ip, req.Email)
 

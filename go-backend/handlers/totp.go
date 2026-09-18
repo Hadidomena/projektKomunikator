@@ -321,7 +321,7 @@ func TOTPValidateHandler(w http.ResponseWriter, r *http.Request) {
 		Scan(&userID, &passwordHash, &encryptedTotpSecret, &totpEnabled)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			ctx.LoginTracker.RecordFailedAttempt(emailAddr)
+			_, _, _, _ = ctx.LoginTracker.RecordFailedAttempt(emailAddr)
 
 			writeError(w, http.StatusUnauthorized, "Invalid credentials")
 			return
