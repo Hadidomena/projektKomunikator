@@ -207,7 +207,7 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to retrieve messages")
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	messages := []MessageResponse{}
 	for rows.Next() {
@@ -281,7 +281,7 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to retrieve messages")
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	messages := []MessageResponse{}
 	for rows.Next() {

@@ -85,7 +85,7 @@ func GetLoginHistory(db *sql.DB, userID int, limit int) ([]LoginAttempt, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var history []LoginAttempt
 	for rows.Next() {

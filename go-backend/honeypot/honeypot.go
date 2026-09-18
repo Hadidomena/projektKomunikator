@@ -86,7 +86,7 @@ func GetTopAttackingIPs(db *sql.DB, limit int) ([]map[string]interface{}, error)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []map[string]interface{}
 	for rows.Next() {
