@@ -22,6 +22,11 @@ func requireAuth(w http.ResponseWriter, r *http.Request) (int, string, bool) {
 	return userID, email, true
 }
 
+func requireAuthOnly(w http.ResponseWriter, r *http.Request) bool {
+	_, _, ok := requireAuth(w, r)
+	return ok
+}
+
 func GetClientIP(r *http.Request) string {
 	forwarded := r.Header.Get("X-Forwarded-For")
 	if forwarded != "" {
