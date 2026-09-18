@@ -117,7 +117,7 @@ func main() {
 	mux.HandleFunc("/api/admin/honeypot-stats", authMiddleware(handlers.HoneypotStatsHandler))
 
 	conditionalRateLimiter := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/login") ||
+		if r.URL.Path == "/api/login" ||
 			strings.HasPrefix(r.URL.Path, "/api/register") ||
 			strings.HasPrefix(r.URL.Path, "/api/password-reset") ||
 			strings.HasPrefix(r.URL.Path, "/api/2fa/validate") {
