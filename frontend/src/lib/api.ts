@@ -19,23 +19,27 @@ export function requireLogin(): boolean {
 }
 
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  return fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${getToken()}`,
-      ...(options.headers || {}),
-    },
-  });
+  const token = getToken();
+  const headers: Record<string, string> = { ...(options.headers as Record<string, string> || {}) };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return fetch(`${API_URL}${path}`, { ...options, headers });
 }
 
 export async function fetchCSRFToken(): Promise<string> {
-  const response = await apiFetch('/api/csrf-token');
-  if (!response.ok) {
-    console.error('Failed to fetch CSRF token:', response.status);
+  try {
+    const response = await apiFetch('/api/csrf-token');
+    if (!response.ok) {
+      console.error('Failed to fetch CSRF token:', response.status);
+      return '';
+    }
+    const data = await response.json();
+    return data.csrf_token || '';
+  } catch (error) {
+    console.error('Failed to fetch CSRF token:', error);
     return '';
   }
-  const data = await response.json();
-  return data.csrf_token || '';
 }
 
 export function showMessage(el: HTMLElement | null, text: string, isError = false): void {
