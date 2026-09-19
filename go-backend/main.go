@@ -116,18 +116,17 @@ func main() {
 	mux.HandleFunc("/api/login-history", authMiddleware(handlers.LoginHistoryHandler))
 	mux.HandleFunc("/api/admin/honeypot-stats", authMiddleware(handlers.HoneypotStatsHandler))
 
+	authLimited := authLimiter.RateLimitMiddleware(mux)
+	generalLimited := generalLimiter.RateLimitMiddleware(mux)
+
 	conditionalRateLimiter := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/login" ||
 			strings.HasPrefix(r.URL.Path, "/api/register") ||
 			strings.HasPrefix(r.URL.Path, "/api/password-reset") ||
 			strings.HasPrefix(r.URL.Path, "/api/2fa/validate") {
-			authLimiter.RateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				mux.ServeHTTP(w, r)
-			})).ServeHTTP(w, r)
+			authLimited.ServeHTTP(w, r)
 		} else {
-			generalLimiter.RateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				mux.ServeHTTP(w, r)
-			})).ServeHTTP(w, r)
+			generalLimited.ServeHTTP(w, r)
 		}
 	})
 
