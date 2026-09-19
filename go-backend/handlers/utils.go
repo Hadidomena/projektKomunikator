@@ -13,6 +13,20 @@ func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
 	return true
 }
 
+func requireAuth(w http.ResponseWriter, r *http.Request) (int, string, bool) {
+	userID, email, err := GetUserFromContext(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "Authentication required")
+		return 0, "", false
+	}
+	return userID, email, true
+}
+
+func requireAuthOnly(w http.ResponseWriter, r *http.Request) bool {
+	_, _, ok := requireAuth(w, r)
+	return ok
+}
+
 func GetClientIP(r *http.Request) string {
 	forwarded := r.Header.Get("X-Forwarded-For")
 	if forwarded != "" {

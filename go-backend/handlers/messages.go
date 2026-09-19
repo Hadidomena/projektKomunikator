@@ -77,9 +77,8 @@ func SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	senderID, senderEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	senderID, senderEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -114,7 +113,7 @@ func SendMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	var receiverID int
 	var receiverPublicKey string
-	err = ctx.DB.QueryRowContext(ctxDB,
+	err := ctx.DB.QueryRowContext(ctxDB,
 		"SELECT id, COALESCE(e2ee_public_key, '') FROM Users WHERE email = $1",
 		strings.ToLower(req.ReceiverEmail)).Scan(&receiverID, &receiverPublicKey)
 	if err != nil {
@@ -166,9 +165,8 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, userEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, userEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -178,7 +176,7 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var total int
-	err = ctx.DB.QueryRowContext(ctxDB, `
+	err := ctx.DB.QueryRowContext(ctxDB, `
 		SELECT COUNT(*) FROM Messages m
 		WHERE m.receiver_id = $1 AND m.is_deleted_by_receiver = FALSE
 	`, userID).Scan(&total)
@@ -209,7 +207,7 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to retrieve messages")
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	messages := []MessageResponse{}
 	for rows.Next() {
@@ -230,6 +228,12 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 		messages = append(messages, msg)
 	}
 
+	if err := rows.Err(); err != nil {
+		log.Printf("Failed to iterate messages: %v", err)
+		writeError(w, http.StatusInternalServerError, "Failed to retrieve messages")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"messages":   messages,
 		"pagination": PaginationMeta{Page: page, Limit: limit, Total: total, TotalPages: totalPages},
@@ -241,9 +245,8 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, userEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, userEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -253,7 +256,7 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var total int
-	err = ctx.DB.QueryRowContext(ctxDB, `
+	err := ctx.DB.QueryRowContext(ctxDB, `
 		SELECT COUNT(*) FROM Messages m
 		WHERE m.sender_id = $1 AND m.is_deleted_by_sender = FALSE
 	`, userID).Scan(&total)
@@ -284,7 +287,7 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to retrieve messages")
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	messages := []MessageResponse{}
 	for rows.Next() {
@@ -301,6 +304,12 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		msg.ReceiverEmail = receiverEmail
 		msg.ReceiverPublicKey = receiverPublicKey
 		messages = append(messages, msg)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Failed to iterate messages: %v", err)
+		writeError(w, http.StatusInternalServerError, "Failed to retrieve messages")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -320,14 +329,38 @@ func decodeMessageID(w http.ResponseWriter, r *http.Request) (int, bool) {
 	return req.MessageID, true
 }
 
+func execMessageUpdate(w http.ResponseWriter, r *http.Request, userID, messageID int, query, action, notFoundMsg string) bool {
+	ctxDB, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	result, err := ctx.DB.ExecContext(ctxDB, query, messageID, userID)
+	if err != nil {
+		log.Printf("Failed to %s: %v", action, err)
+		writeError(w, http.StatusInternalServerError, "Failed to "+action)
+		return false
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("Failed to %s: %v", action, err)
+		writeError(w, http.StatusInternalServerError, "Failed to "+action)
+		return false
+	}
+	if rowsAffected == 0 {
+		writeError(w, http.StatusNotFound, notFoundMsg)
+		return false
+	}
+
+	return true
+}
+
 func MarkMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPut) {
 		return
 	}
 
-	userID, _, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, _, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -336,25 +369,11 @@ func MarkMessageAsReadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctxDB, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	result, err := ctx.DB.ExecContext(ctxDB,
+	if execMessageUpdate(w, r, userID, messageID,
 		"UPDATE Messages SET is_read = TRUE, read_at = NOW() WHERE id = $1 AND receiver_id = $2 AND is_read = FALSE",
-		messageID, userID)
-	if err != nil {
-		log.Printf("Failed to mark message as read: %v", err)
-		writeError(w, http.StatusInternalServerError, "Failed to mark message as read")
-		return
+		"mark message as read", "Message not found or already read") {
+		writeMessage(w, http.StatusOK, "Message marked as read")
 	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		writeError(w, http.StatusNotFound, "Message not found or already read")
-		return
-	}
-
-	writeMessage(w, http.StatusOK, "Message marked as read")
 }
 
 func GetMessageHandler(w http.ResponseWriter, r *http.Request) {
@@ -362,9 +381,8 @@ func GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, _, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -424,7 +442,7 @@ func GetMessageHandler(w http.ResponseWriter, r *http.Request) {
 		msg.Signature = signature.String
 	}
 
-	if !(encryptedKey.Valid && encryptedKey.String == "client-e2ee") {
+	if !encryptedKey.Valid || encryptedKey.String != "client-e2ee" {
 		log.Printf("Warning: Message %d is not marked as encrypted\n", msg.ID)
 	}
 
@@ -436,9 +454,8 @@ func DeleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, _, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -447,26 +464,12 @@ func DeleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctxDB, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	result, err := ctx.DB.ExecContext(ctxDB, `
+	if execMessageUpdate(w, r, userID, messageID, `
 		UPDATE Messages
 		SET is_deleted_by_sender = CASE WHEN sender_id = $2 THEN TRUE ELSE is_deleted_by_sender END,
 		    is_deleted_by_receiver = CASE WHEN receiver_id = $2 THEN TRUE ELSE is_deleted_by_receiver END
 		WHERE id = $1 AND (sender_id = $2 OR receiver_id = $2)
-	`, messageID, userID)
-	if err != nil {
-		log.Printf("Failed to delete message: %v", err)
-		writeError(w, http.StatusInternalServerError, "Failed to delete message")
-		return
+	`, "delete message", "Message not found") {
+		writeMessage(w, http.StatusOK, "Message deleted successfully")
 	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		writeError(w, http.StatusNotFound, "Message not found")
-		return
-	}
-
-	writeMessage(w, http.StatusOK, "Message deleted successfully")
 }

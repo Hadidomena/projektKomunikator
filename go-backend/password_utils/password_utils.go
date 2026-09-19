@@ -42,7 +42,7 @@ func LoadCommonPasswords() error {
 	if file == nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	commonPasswords = make(map[string]struct{})
 	scanner := bufio.NewScanner(file)

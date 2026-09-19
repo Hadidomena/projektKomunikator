@@ -97,7 +97,7 @@ func PasswordResetVerifyHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to reset password")
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var userID int
 	err = tx.QueryRow(`

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -123,13 +124,15 @@ func (rl *RateLimiter) RateLimitMiddleware(next http.Handler) http.Handler {
 		}
 
 		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			ip = strings.Split(forwarded, ",")[0]
+			ip = strings.TrimSpace(strings.Split(forwarded, ",")[0])
 		}
 
 		if !rl.Allow(ip) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"message":"Too many requests. Please try again later."}`))
+			if _, err := w.Write([]byte(`{"message":"Too many requests. Please try again later."}`)); err != nil {
+				log.Printf("Failed to write rate limit response: %v", err)
+			}
 			return
 		}
 

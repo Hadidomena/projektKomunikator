@@ -72,7 +72,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			ctx.LoginTracker.RecordFailedAttempt(emailAddr)
+			_, _, _, _ = ctx.LoginTracker.RecordFailedAttempt(emailAddr)
 
 			writeError(w, http.StatusUnauthorized, validation.GetSanitizedError("login_failed"))
 			return
@@ -177,7 +177,7 @@ func loginHoneypotTriggered(w http.ResponseWriter, r *http.Request, email, websi
 		honeypotValue = middleName
 	}
 
-	honeypot.RecordHoneypotAttempt(ctx.DB, &honeypot.HoneypotAttempt{
+	_ = honeypot.RecordHoneypotAttempt(ctx.DB, &honeypot.HoneypotAttempt{
 		IPAddress:     ip,
 		UserAgent:     r.UserAgent(),
 		HoneypotField: "login_honeypot",

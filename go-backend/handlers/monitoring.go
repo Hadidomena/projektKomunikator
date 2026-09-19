@@ -56,18 +56,16 @@ func GetHoneypotStatsHandler(w http.ResponseWriter, r *http.Request, userID int,
 }
 
 func LoginHistoryHandler(w http.ResponseWriter, r *http.Request) {
-	userID, userEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, userEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 	GetLoginHistoryHandler(w, r, userID, userEmail)
 }
 
 func HoneypotStatsHandler(w http.ResponseWriter, r *http.Request) {
-	userID, userEmail, err := GetUserFromContext(r)
-	if err != nil {
-		writeUnauthorized(w)
+	userID, userEmail, ok := requireAuth(w, r)
+	if !ok {
 		return
 	}
 
