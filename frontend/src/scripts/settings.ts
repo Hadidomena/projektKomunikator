@@ -1,4 +1,5 @@
 import { apiFetch, requireLogin, fetchCSRFToken as apiFetchCSRFToken, showMessage as setMessage } from '../lib/api';
+import { escapeHtml } from '../lib/dom';
 
 requireLogin();
 let csrfToken = '';
@@ -77,12 +78,12 @@ document.getElementById('enable2faBtn')?.addEventListener('click', async () => {
           <div style="text-align: center; padding: 20px; background: white; border-radius: 10px;">
             <p style="color: #666; margin-bottom: 10px; font-size: 13px;">Enter this secret manually in your authenticator app:</p>
             <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 15px;">
-              <code style="background: #f0f0f0; padding: 10px 15px; border-radius: 5px; font-size: 16px; letter-spacing: 2px; font-weight: bold;">${data.secret}</code>
+              <code style="background: #f0f0f0; padding: 10px 15px; border-radius: 5px; font-size: 16px; letter-spacing: 2px; font-weight: bold;">${escapeHtml(data.secret)}</code>
               <button type="button" id="copySecretBtn" style="padding: 8px 12px; font-size: 12px;">Copy</button>
             </div>
             <p style="color: #666; margin-bottom: 5px; font-size: 12px;">Or copy the otpauth:// link:</p>
             <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
-              <code style="word-break: break-all; background: #f0f0f0; padding: 8px; border-radius: 5px; font-size: 10px; max-width: 90%;">${otpauthUrl}</code>
+              <code style="word-break: break-all; background: #f0f0f0; padding: 8px; border-radius: 5px; font-size: 10px; max-width: 90%;">${escapeHtml(otpauthUrl)}</code>
               <button type="button" id="copyUriBtn" style="padding: 8px 12px; font-size: 12px;">Copy</button>
             </div>
             <p style="margin-top: 12px; font-size: 11px; color: #999;">Your secret never leaves your browser or our server (encrypted at rest).</p>
@@ -192,9 +193,9 @@ async function loadLoginHistory() {
 
     container.innerHTML = history.map((item: any) => `
       <div class="login-item">
-        <div class="ip">🌐 ${item.ip_address}</div>
+        <div class="ip">🌐 ${escapeHtml(item.ip_address || '')}</div>
         <div class="date">📅 ${new Date(item.login_time).toLocaleString()}</div>
-        <div class="device">💻 ${item.user_agent || 'Unknown device'}</div>
+        <div class="device">💻 ${escapeHtml(item.user_agent || 'Unknown device')}</div>
         ${item.new_device ? '<div class="new-device">🆕 New Device</div>' : ''}
       </div>
     `).join('');
