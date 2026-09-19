@@ -1,4 +1,5 @@
 import { apiFetch, getEmail, requireLogin, fetchCSRFToken } from '../lib/api';
+import { escapeHtml } from '../lib/dom';
 import { E2EE } from '../lib/e2ee';
 
 declare const marked: { parse: (text: string, options?: { async?: boolean }) => string | Promise<string> };
@@ -73,12 +74,6 @@ function renderMarkdown(content: string): string {
     console.error('Markdown rendering error:', error);
     return escapeHtml(content);
   }
-}
-
-function escapeHtml(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
 }
 
 requireLogin();
