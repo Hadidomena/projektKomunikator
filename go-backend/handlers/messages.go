@@ -328,7 +328,12 @@ func execMessageUpdate(w http.ResponseWriter, r *http.Request, userID, messageID
 		return false
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("Failed to %s: %v", action, err)
+		writeError(w, http.StatusInternalServerError, "Failed to "+action)
+		return false
+	}
 	if rowsAffected == 0 {
 		writeError(w, http.StatusNotFound, notFoundMsg)
 		return false
