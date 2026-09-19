@@ -124,7 +124,7 @@ func (rl *RateLimiter) RateLimitMiddleware(next http.Handler) http.Handler {
 		}
 
 		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			ip = strings.Split(forwarded, ",")[0]
+			ip = strings.TrimSpace(strings.Split(forwarded, ",")[0])
 		}
 
 		if !rl.Allow(ip) {
