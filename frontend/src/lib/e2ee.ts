@@ -178,7 +178,7 @@ export class E2EE {
         attachments: [],
         encrypted: false
       };
-    } catch (e) {
+    } catch {
       return {
         content: rawContent,
         attachments: [],
