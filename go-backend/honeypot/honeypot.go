@@ -101,5 +101,9 @@ func GetTopAttackingIPs(db *sql.DB, limit int) ([]map[string]interface{}, error)
 		})
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return results, nil
 }

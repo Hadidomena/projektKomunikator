@@ -228,6 +228,12 @@ func GetInboxHandler(w http.ResponseWriter, r *http.Request) {
 		messages = append(messages, msg)
 	}
 
+	if err := rows.Err(); err != nil {
+		log.Printf("Failed to iterate messages: %v", err)
+		writeError(w, http.StatusInternalServerError, "Failed to retrieve messages")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"messages":   messages,
 		"pagination": PaginationMeta{Page: page, Limit: limit, Total: total, TotalPages: totalPages},
@@ -298,6 +304,12 @@ func GetSentMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		msg.ReceiverEmail = receiverEmail
 		msg.ReceiverPublicKey = receiverPublicKey
 		messages = append(messages, msg)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Failed to iterate messages: %v", err)
+		writeError(w, http.StatusInternalServerError, "Failed to retrieve messages")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
