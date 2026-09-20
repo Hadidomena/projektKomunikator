@@ -95,6 +95,12 @@ passwordInput.addEventListener('input', (e) => {
   submitBtn.textContent = 'Generating keys...';
 
   const website = (document.getElementById('website') as HTMLInputElement).value;
+  const fail = (message: string) => {
+    messageEl.textContent = message;
+    messageEl.style.color = 'red';
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Register';
+  };
 
   try {
     const keyPair = await crypto.subtle.generateKey(
@@ -150,16 +156,10 @@ passwordInput.addEventListener('input', (e) => {
       }, 1500);
     } else {
       const error = await response.json();
-      messageEl.textContent = `Registration failed: ${error.message}`;
-      messageEl.style.color = 'red';
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Register';
+      fail(`Registration failed: ${error.message}`);
     }
   } catch (error) {
     console.error('Registration error:', error);
-    messageEl.textContent = 'An error occurred during registration.';
-    messageEl.style.color = 'red';
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Register';
+    fail('An error occurred during registration.');
   }
 });
