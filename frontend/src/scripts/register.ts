@@ -1,3 +1,5 @@
+import { arrayBufferToBase64, derivePasswordKey } from '../lib/crypto';
+
 let currentStrength: any = null;
 const passwordInput = document.getElementById('password') as HTMLInputElement;
 const strengthMeter = document.getElementById('strength-meter') as HTMLDivElement;
@@ -104,25 +106,10 @@ passwordInput.addEventListener('input', (e) => {
     const publicKeyRaw = await crypto.subtle.exportKey('raw', keyPair.publicKey);
     const privateKeyPkcs8 = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
     
-    const publicKeyB64 = btoa(String.fromCharCode(...new Uint8Array(publicKeyRaw)));
-    
-    const encoder = new TextEncoder();
-    const passwordKey = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode(password),
-      { name: 'PBKDF2' },
-      false,
-      ['deriveBits', 'deriveKey']
-    );
+    const publicKeyB64 = arrayBufferToBase64(publicKeyRaw);
     
     const salt = crypto.getRandomValues(new Uint8Array(16));
-    const aesKey = await crypto.subtle.deriveKey(
-      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
-      passwordKey,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt', 'decrypt']
-    );
+    const aesKey = await derivePasswordKey(password, salt, ['encrypt', 'decrypt']);
     
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encryptedPrivateKey = await crypto.subtle.encrypt(
@@ -135,7 +122,7 @@ passwordInput.addEventListener('input', (e) => {
     stored.set(salt, 0);
     stored.set(iv, salt.length);
     stored.set(new Uint8Array(encryptedPrivateKey), salt.length + iv.length);
-    const privateKeyEncryptedB64 = btoa(String.fromCharCode(...stored));
+    const privateKeyEncryptedB64 = arrayBufferToBase64(stored.buffer);
     
     submitBtn.textContent = 'Registering...';
 
