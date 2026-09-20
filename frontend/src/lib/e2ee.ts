@@ -69,6 +69,15 @@ export class E2EE {
     return null;
   }
 
+  private async messageKey(otherPartyPublicKeyB64: string): Promise<CryptoKey> {
+    const otherPartyPublicKey = await importPublicKey(otherPartyPublicKeyB64);
+    const sharedSecret = await deriveSharedSecret(this.privateKey!, otherPartyPublicKey);
+    const sortedKeys = [this.publicKey!, otherPartyPublicKeyB64].sort().join('');
+    const saltData = new TextEncoder().encode(sortedKeys);
+    const saltHash = await crypto.subtle.digest('SHA-256', saltData);
+    return deriveMessageKey(sharedSecret, 'message-encryption', saltHash, this.pepper);
+  }
+
   async encrypt(content: string, receiverPublicKeyB64: string): Promise<{
     encryptedContent: string,
     nonce: string,
@@ -78,15 +87,7 @@ export class E2EE {
       throw new Error('Sender keys not available');
     }
 
-    const receiverPublicKey = await importPublicKey(receiverPublicKeyB64);
-
-    const sharedSecret = await deriveSharedSecret(this.privateKey, receiverPublicKey);
-    const sortedKeys = [this.publicKey, receiverPublicKeyB64].sort().join('');
-    const saltData = new TextEncoder().encode(sortedKeys);
-    const saltHash = await crypto.subtle.digest('SHA-256', saltData);
-
-    const messageKey = await deriveMessageKey(sharedSecret, 'message-encryption', saltHash, this.pepper);
-
+    const messageKey = await this.messageKey(receiverPublicKeyB64);
     const { ciphertext, nonce } = await encryptMessage(content, messageKey);
 
     return {
@@ -105,13 +106,7 @@ export class E2EE {
       throw new Error('Private key not available');
     }
 
-    const otherPartyPublicKey = await importPublicKey(otherPartyPublicKeyB64);
-    const sharedSecret = await deriveSharedSecret(this.privateKey, otherPartyPublicKey);
-    const sortedKeys = [this.publicKey, otherPartyPublicKeyB64].sort().join('');
-    const saltData = new TextEncoder().encode(sortedKeys);
-    const saltHash = await crypto.subtle.digest('SHA-256', saltData);
-
-    const messageKey = await deriveMessageKey(sharedSecret, 'message-encryption', saltHash, this.pepper);
+    const messageKey = await this.messageKey(otherPartyPublicKeyB64);
     return decryptMessage(encryptedContent, nonce, messageKey);
   }
 
