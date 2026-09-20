@@ -1,4 +1,5 @@
 import { API_URL, showMessage as setMessage } from '../lib/api';
+import { base64ToArrayBuffer, arrayBufferToBase64, derivePasswordKey } from '../lib/crypto';
 
 const loginForm = document.getElementById('loginForm') as HTMLFormElement;
 const loginBtn = document.getElementById('loginBtn') as HTMLButtonElement;
@@ -26,35 +27,19 @@ async function storeSession(data: any, email: string, password: string, successT
 
   if (encryptedPrivateKeyB64) {
     try {
-      const encryptedData = Uint8Array.from(atob(encryptedPrivateKeyB64), c => c.charCodeAt(0));
+      const encryptedData = new Uint8Array(base64ToArrayBuffer(encryptedPrivateKeyB64));
       const salt = encryptedData.slice(0, 16);
       const iv = encryptedData.slice(16, 28);
       const ciphertext = encryptedData.slice(28);
 
-      const encoder = new TextEncoder();
-      const passwordKey = await crypto.subtle.importKey(
-        'raw',
-        encoder.encode(password),
-        { name: 'PBKDF2' },
-        false,
-        ['deriveBits', 'deriveKey']
-      );
-
-      const aesKey = await crypto.subtle.deriveKey(
-        { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
-        passwordKey,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['decrypt']
-      );
-
+      const aesKey = await derivePasswordKey(password, salt, ['decrypt']);
       const decryptedPrivateKey = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv },
         aesKey,
         ciphertext
       );
 
-      const privateKeyB64 = btoa(String.fromCharCode(...new Uint8Array(decryptedPrivateKey)));
+      const privateKeyB64 = arrayBufferToBase64(decryptedPrivateKey);
       sessionStorage.setItem('e2ee_private_key_pkcs8', privateKeyB64);
       console.log('E2EE private key decrypted successfully');
     } catch (e) {
