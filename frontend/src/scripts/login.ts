@@ -1,4 +1,4 @@
-import { API_URL, showMessage as setMessage } from '../lib/api';
+import { API_URL, messageBox } from '../lib/api';
 import { base64ToArrayBuffer, arrayBufferToBase64, derivePasswordKey } from '../lib/crypto';
 
 const loginForm = document.getElementById('loginForm') as HTMLFormElement;
@@ -7,9 +7,7 @@ const messageEl = document.getElementById('message') as HTMLDivElement;
 const totpSection = document.getElementById('totpSection') as HTMLDivElement;
 const verifyTotpBtn = document.getElementById('verifyTotpBtn') as HTMLButtonElement;
 
-function showMessage(text: string, isError: boolean = false) {
-  setMessage(messageEl, text, isError);
-}
+const showMessage = messageBox(messageEl);
 
 async function storeSession(data: any, email: string, password: string, successText: string) {
   localStorage.setItem('jwt_token', data.token);

@@ -1,4 +1,4 @@
-import { API_URL, showMessage as setMessage } from '../lib/api';
+import { API_URL, messageBox } from '../lib/api';
 
 const requestForm = document.getElementById('requestForm') as HTMLFormElement;
 const verifyForm = document.getElementById('verifyForm') as HTMLFormElement;
@@ -6,9 +6,7 @@ const requestSection = document.getElementById('requestSection') as HTMLDivEleme
 const verifySection = document.getElementById('verifySection') as HTMLDivElement;
 const messageEl = document.getElementById('message') as HTMLDivElement;
 
-function showMessage(text: string, isError: boolean = false) {
-  setMessage(messageEl, text, isError);
-}
+const showMessage = messageBox(messageEl);
 
 requestForm.addEventListener('submit', async (e) => {
   e.preventDefault();

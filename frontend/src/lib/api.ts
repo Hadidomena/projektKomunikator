@@ -50,3 +50,7 @@ export function showMessage(el: HTMLElement | null, text: string, isError = fals
   el.className = `message ${isError ? 'error' : 'success'}`;
   el.style.display = 'block';
 }
+
+export function messageBox(el: HTMLElement | null): (text: string, isError?: boolean) => void {
+  return (text: string, isError = false) => showMessage(el, text, isError);
+}
