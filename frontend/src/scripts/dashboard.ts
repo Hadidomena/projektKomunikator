@@ -361,7 +361,7 @@ function buildPaginationNav(page: number): HTMLElement {
 
   const pageInfo = document.createElement('span');
   pageInfo.textContent = `Page ${page} of ${totalPages}`;
-  pageInfo.style.cssText = 'font-size: 14px; color: #666;';
+  pageInfo.style.cssText = 'font-size: 14px; color: var(--text-muted);';
 
   const nextBtn = document.createElement('button');
   nextBtn.textContent = 'Next →';
@@ -431,12 +431,12 @@ async function openMessage(messageId: number) {
 
     detail.innerHTML = `
       <div class="message-full">
-        <div class="from">${escapeHtml(currentTab === 'inbox' ? 'From' : 'To')}: ${escapeHtml(currentTab === 'inbox' ? msg.sender_email : msg.receiver_email)} ${isEncrypted ? '<span style="color: #28a745;">🔒 End-to-End Encrypted</span>' : ''}</div>
+        <div class="from">${escapeHtml(currentTab === 'inbox' ? 'From' : 'To')}: ${escapeHtml(currentTab === 'inbox' ? msg.sender_email : msg.receiver_email)} ${isEncrypted ? '<span style="color: var(--success-solid);">🔒 End-to-End Encrypted</span>' : ''}</div>
         <div class="date">${escapeHtml(new Date(msg.created_at).toLocaleString())}</div>
         <div class="content"></div>
         ${attachmentsHtml}
-        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee;">
-          <button class="download-btn" style="background: #dc3545;" onclick="deleteMessage(${msg.id})">
+        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border-subtle);">
+          <button class="download-btn" style="background: var(--danger-solid);" onclick="deleteMessage(${msg.id})">
             🗑️ Delete Message
           </button>
         </div>
@@ -569,7 +569,7 @@ document.getElementById('verifyFingerprintBtn')?.addEventListener('click', async
     if (response.ok) {
       const data = await response.json();
       const formatted = data.fingerprint.match(/.{1,4}/g)?.join(' ') || data.fingerprint;
-      info.innerHTML = `🔒 Recipient's fingerprint: <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px;">${formatted}</code>`;
+      info.innerHTML = `🔒 Recipient's fingerprint: <code style="background: var(--surface-code); padding: 2px 6px; border-radius: 3px; font-size: 11px;">${formatted}</code>`;
       info.style.display = 'block';
     } else {
       info.textContent = '⚠️ Could not fetch fingerprint - user may not have E2EE configured';

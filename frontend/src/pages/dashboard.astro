@@ -4,76 +4,76 @@ import '../styles/app.css';
 ---
   <style>
     .user-info { display: flex; align-items: center; gap: 15px; }
-    .logout-btn { background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-size: 14px; }
+    .logout-btn { background: rgba(255,255,255,0.2); color: var(--header-text); border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-size: 14px; }
     .logout-btn:hover { background: rgba(255,255,255,0.3); }
     .container { max-width: 1200px; margin: 30px auto; padding: 0 20px; }
-    .compose-section { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 30px; }
-    .compose-section h2 { margin-bottom: 20px; color: #333; }
+    .compose-section { background: var(--surface); padding: 25px; border-radius: 10px; box-shadow: var(--shadow-md); margin-bottom: 30px; }
+    .compose-section h2 { margin-bottom: 20px; color: var(--text); }
     .form-group { margin-bottom: 15px; }
-    .form-group label { display: block; margin-bottom: 5px; color: #555; font-weight: 500; }
-    .form-group input, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; font-family: inherit; }
+    .form-group label { display: block; margin-bottom: 5px; color: var(--text-label); font-weight: 500; }
+    .form-group input, .form-group textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 5px; font-size: 14px; font-family: inherit; background: var(--surface); color: var(--text); }
     .form-group textarea { min-height: 100px; resize: vertical; }
-    .file-upload { border: 2px dashed #ddd; padding: 20px; text-align: center; border-radius: 5px; cursor: pointer; transition: all 0.3s; }
-    .file-upload:hover { border-color: #667eea; background: #f8f9ff; }
-    .file-upload.dragover { border-color: #667eea; background: #f0f2ff; }
+    .file-upload { border: 2px dashed var(--border); padding: 20px; text-align: center; border-radius: 5px; cursor: pointer; transition: all 0.3s; }
+    .file-upload:hover { border-color: var(--accent); background: var(--surface-hover); }
+    .file-upload.dragover { border-color: var(--accent); background: var(--surface-active); }
     .file-list { margin-top: 10px; }
-    .file-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: #f8f9fa; border-radius: 5px; margin-top: 5px; }
+    .file-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: var(--surface-muted); border-radius: 5px; margin-top: 5px; }
     .file-item-info { display: flex; align-items: center; gap: 10px; }
     .file-icon { font-size: 20px; }
-    .file-size { color: #666; font-size: 12px; }
-    .remove-file { background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 12px; }
-    .remove-file:hover { background: #c82333; }
-    .send-btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 30px; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold; }
+    .file-size { color: var(--text-muted); font-size: 12px; }
+    .remove-file { background: var(--danger-solid); color: var(--text-on-accent); border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 12px; }
+    .remove-file:hover { background: var(--danger-solid-hover); }
+    .send-btn { background: var(--accent-gradient); color: var(--text-on-accent); border: none; padding: 12px 30px; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold; }
     .send-btn:hover { opacity: 0.9; }
     .send-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-    .messages-section { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-    .messages-section h2 { margin-bottom: 20px; color: #333; }
-    .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eee; }
-    .tab { padding: 10px 20px; cursor: pointer; border: none; background: none; font-size: 14px; font-weight: 500; color: #666; transition: all 0.3s; }
-    .tab.active { color: #667eea; border-bottom: 2px solid #667eea; }
+    .messages-section { background: var(--surface); padding: 25px; border-radius: 10px; box-shadow: var(--shadow-md); }
+    .messages-section h2 { margin-bottom: 20px; color: var(--text); }
+    .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border-subtle); }
+    .tab { padding: 10px 20px; cursor: pointer; border: none; background: none; font-size: 14px; font-weight: 500; color: var(--text-muted); transition: all 0.3s; }
+    .tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); }
     .message-list { max-height: 600px; overflow-y: auto; }
-    .message-item { border: 1px solid #e0e0e0; border-radius: 5px; padding: 15px; margin-bottom: 10px; cursor: pointer; transition: all 0.3s; }
-    .message-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-    .message-item.unread { background: #f0f7ff; border-left: 4px solid #667eea; }
+    .message-item { border: 1px solid var(--border-item); border-radius: 5px; padding: 15px; margin-bottom: 10px; cursor: pointer; transition: all 0.3s; }
+    .message-item:hover { box-shadow: var(--shadow-md); }
+    .message-item.unread { background: var(--surface-unread); border-left: 4px solid var(--accent); }
     .message-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    .message-from { font-weight: bold; color: #333; }
-    .message-date { font-size: 12px; color: #999; }
-    .message-preview { color: #666; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+    .message-from { font-weight: bold; color: var(--text); }
+    .message-date { font-size: 12px; color: var(--text-subtle); }
+    .message-preview { color: var(--text-muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--overlay); z-index: 1000; }
     .modal.active { display: flex; justify-content: center; align-items: center; }
-    .modal-content { background: white; border-radius: 10px; padding: 30px; max-width: 800px; width: 90%; max-height: 90vh; overflow-y: auto; }
+    .modal-content { background: var(--surface); border-radius: 10px; padding: 30px; max-width: 800px; width: 90%; max-height: 90vh; overflow-y: auto; }
     .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-    .modal-header h3 { color: #333; }
-    .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #999; }
-    .close-btn:hover { color: #333; }
-    .message-full .from { font-weight: bold; color: #667eea; margin-bottom: 5px; }
-    .message-full .date { font-size: 12px; color: #999; margin-bottom: 15px; }
-    .message-full .content { color: #333; line-height: 1.6; margin-bottom: 20px; }
+    .modal-header h3 { color: var(--text); }
+    .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-subtle); }
+    .close-btn:hover { color: var(--text); }
+    .message-full .from { font-weight: bold; color: var(--accent); margin-bottom: 5px; }
+    .message-full .date { font-size: 12px; color: var(--text-subtle); margin-bottom: 15px; }
+    .message-full .content { color: var(--text); line-height: 1.6; margin-bottom: 20px; }
     .message-full .content p { margin-bottom: 10px; }
-    .message-full .content h1, .message-full .content h2, .message-full .content h3 { margin: 15px 0 10px 0; color: #333; }
+    .message-full .content h1, .message-full .content h2, .message-full .content h3 { margin: 15px 0 10px 0; color: var(--text); }
     .message-full .content h1 { font-size: 1.5em; }
     .message-full .content h2 { font-size: 1.3em; }
     .message-full .content h3 { font-size: 1.1em; }
     .message-full .content ul, .message-full .content ol { margin: 10px 0 10px 20px; }
     .message-full .content li { margin-bottom: 5px; }
-    .message-full .content code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 0.9em; }
-    .message-full .content pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; margin: 10px 0; }
+    .message-full .content code { background: var(--surface-code); padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 0.9em; }
+    .message-full .content pre { background: var(--surface-code); padding: 15px; border-radius: 5px; overflow-x: auto; margin: 10px 0; }
     .message-full .content pre code { background: none; padding: 0; }
-    .message-full .content blockquote { border-left: 4px solid #667eea; padding-left: 15px; margin: 10px 0; color: #555; }
-    .message-full .content a { color: #667eea; text-decoration: none; }
+    .message-full .content blockquote { border-left: 4px solid var(--accent); padding-left: 15px; margin: 10px 0; color: var(--text-label); }
+    .message-full .content a { color: var(--accent); text-decoration: none; }
     .message-full .content a:hover { text-decoration: underline; }
     .message-full .content strong { font-weight: bold; }
     .message-full .content em { font-style: italic; }
-    .message-full .content hr { border: none; border-top: 1px solid #ddd; margin: 15px 0; }
+    .message-full .content hr { border: none; border-top: 1px solid var(--border); margin: 15px 0; }
     .message-full .content table { border-collapse: collapse; margin: 10px 0; width: 100%; }
-    .message-full .content th, .message-full .content td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-    .message-full .content th { background: #f4f4f4; }
+    .message-full .content th, .message-full .content td { border: 1px solid var(--border); padding: 8px; text-align: left; }
+    .message-full .content th { background: var(--surface-code); }
     .message-full .content img { max-width: 100%; height: auto; }
-    .attachment-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f8f9fa; border-radius: 5px; margin-bottom: 10px; }
-    .download-btn { background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-size: 14px; }
-    .download-btn:hover { background: #218838; }
-    .loading { text-align: center; padding: 40px; color: #999; }
-    .error { background: #fee; color: #c33; padding: 15px; border-radius: 5px; border: 1px solid #fcc; margin-bottom: 20px; }
+    .attachment-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: var(--surface-muted); border-radius: 5px; margin-bottom: 10px; }
+    .download-btn { background: var(--success-solid); color: var(--text-on-accent); border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-size: 14px; }
+    .download-btn:hover { background: var(--success-solid-hover); }
+    .loading { text-align: center; padding: 40px; color: var(--text-subtle); }
+    .error { background: var(--danger-bg); color: var(--danger); padding: 15px; border-radius: 5px; border: 1px solid var(--danger-border); margin-bottom: 20px; }
   </style>
 
 <BaseLayout title="Dashboard - Communicator">
@@ -101,7 +101,7 @@ import '../styles/app.css';
             <input type="email" id="receiverEmail" required placeholder="recipient@example.com" style="flex: 1;" />
             <button type="button" id="verifyFingerprintBtn" style="padding: 10px 15px; font-size: 13px;" title="Verify recipient's E2EE fingerprint">🔍 Verify</button>
           </div>
-          <div id="recipientFingerprintInfo" style="font-size: 12px; color: #666; margin-top: 5px; display: none;"></div>
+          <div id="recipientFingerprintInfo" style="font-size: 12px; color: var(--text-muted); margin-top: 5px; display: none;"></div>
         </div>
         <div class="form-group">
           <label for="messageContent">Message:</label>
