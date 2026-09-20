@@ -1,4 +1,5 @@
 import { apiFetch, getEmail, requireLogin, fetchCSRFToken } from '../lib/api';
+import { base64ToArrayBuffer } from '../lib/crypto';
 import { escapeHtml } from '../lib/dom';
 import { E2EE } from '../lib/e2ee';
 
@@ -461,11 +462,7 @@ async function openMessage(messageId: number) {
     }
 
     const att = attachments[index];
-    const binaryString = atob(att.data);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
+    const bytes = new Uint8Array(base64ToArrayBuffer(att.data));
 
     const blob = new Blob([bytes], { type: att.content_type });
     const url = URL.createObjectURL(blob);
