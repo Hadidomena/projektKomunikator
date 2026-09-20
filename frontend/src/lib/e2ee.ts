@@ -168,17 +168,13 @@ export class E2EE {
         };
       }
 
-      return {
-        content: rawContent,
-        attachments: [],
-        encrypted: false
-      };
     } catch {
-      return {
-        content: rawContent,
-        attachments: [],
-        encrypted: false
-      };
     }
+
+    return {
+      content: rawContent,
+      attachments: [],
+      encrypted: false
+    };
   }
 }
