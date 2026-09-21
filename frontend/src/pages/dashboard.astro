@@ -7,11 +7,9 @@ import '../styles/app.css';
     .logout-btn { background: rgba(255,255,255,0.2); color: var(--header-text); border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-size: 14px; }
     .logout-btn:hover { background: rgba(255,255,255,0.3); }
     .container { max-width: 1200px; margin: 30px auto; padding: 0 20px; }
-    .compose-section { background: var(--surface); padding: 25px; border-radius: 10px; box-shadow: var(--shadow-md); margin-bottom: 30px; }
-    .compose-section h2 { margin-bottom: 20px; color: var(--text); }
+    .compose-section { margin-bottom: 30px; }
+    .compose-section h2 { margin-bottom: 20px; }
     .form-group { margin-bottom: 15px; }
-    .form-group label { display: block; margin-bottom: 5px; color: var(--text-label); font-weight: 500; }
-    .form-group input, .form-group textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 5px; font-size: 14px; font-family: inherit; background: var(--surface); color: var(--text); }
     .form-group textarea { min-height: 100px; resize: vertical; }
     .file-upload { border: 2px dashed var(--border); padding: 20px; text-align: center; border-radius: 5px; cursor: pointer; transition: all 0.3s; }
     .file-upload:hover { border-color: var(--accent); background: var(--surface-hover); }
@@ -26,8 +24,7 @@ import '../styles/app.css';
     .send-btn { background: var(--accent-gradient); color: var(--text-on-accent); border: none; padding: 12px 30px; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold; }
     .send-btn:hover { opacity: 0.9; }
     .send-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-    .messages-section { background: var(--surface); padding: 25px; border-radius: 10px; box-shadow: var(--shadow-md); }
-    .messages-section h2 { margin-bottom: 20px; color: var(--text); }
+    .messages-section h2 { margin-bottom: 20px; }
     .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border-subtle); }
     .tab { padding: 10px 20px; cursor: pointer; border: none; background: none; font-size: 14px; font-weight: 500; color: var(--text-muted); transition: all 0.3s; }
     .tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); }
@@ -92,7 +89,7 @@ import '../styles/app.css';
   </div>
 
   <div class="container">
-    <div class="compose-section">
+    <div class="compose-section card">
       <h2>✉️ Send Message</h2>
       <form id="composeForm">
         <div class="form-group">
@@ -120,7 +117,7 @@ import '../styles/app.css';
       </form>
     </div>
 
-    <div class="messages-section">
+    <div class="messages-section card">
       <h2>📬 Messages</h2>
       <div class="tabs">
         <button class="tab active" data-tab="inbox">Inbox</button>
