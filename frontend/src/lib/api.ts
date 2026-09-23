@@ -27,6 +27,14 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
   return fetch(`${API_URL}${path}`, { ...options, headers });
 }
 
+export async function sendJSON(path: string, method: string, body: unknown): Promise<Response> {
+  return apiFetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function fetchCSRFToken(): Promise<string> {
   try {
     const response = await apiFetch('/api/csrf-token');

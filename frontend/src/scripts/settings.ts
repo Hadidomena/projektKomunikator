@@ -1,4 +1,4 @@
-import { apiFetch, requireLogin, fetchCSRFToken as apiFetchCSRFToken, showMessage as setMessage } from '../lib/api';
+import { apiFetch, requireLogin, sendJSON, fetchCSRFToken as apiFetchCSRFToken, showMessage as setMessage } from '../lib/api';
 import { escapeHtml } from '../lib/dom';
 
 requireLogin();
@@ -56,14 +56,7 @@ document.getElementById('enable2faBtn')?.addEventListener('click', async () => {
   }
 
   try {
-    const response = await apiFetch('/api/2fa/setup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        csrf_token: csrfToken,
-        password: password
-      })
-    });
+    const response = await sendJSON('/api/2fa/setup', 'POST', { csrf_token: csrfToken, password });
 
     const data = await response.json();
 
@@ -128,11 +121,7 @@ document.getElementById('verify2faBtn')?.addEventListener('click', async () => {
   }
 
   try {
-    const response = await apiFetch('/api/2fa/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ totp_code: code, csrf_token: csrfToken })
-    });
+    const response = await sendJSON('/api/2fa/verify', 'POST', { totp_code: code, csrf_token: csrfToken });
 
     const data = await response.json();
 
@@ -157,11 +146,7 @@ document.getElementById('disable2faBtn')?.addEventListener('click', async () => 
   }
 
   try {
-    const response = await apiFetch('/api/2fa/disable', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csrf_token: csrfToken, totp_code: code })
-    });
+    const response = await sendJSON('/api/2fa/disable', 'POST', { csrf_token: csrfToken, totp_code: code });
 
     const data = await response.json();
 

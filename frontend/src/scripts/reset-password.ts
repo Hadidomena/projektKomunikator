@@ -1,4 +1,4 @@
-import { API_URL, messageBox } from '../lib/api';
+import { messageBox, sendJSON } from '../lib/api';
 
 const requestForm = document.getElementById('requestForm') as HTMLFormElement;
 const verifyForm = document.getElementById('verifyForm') as HTMLFormElement;
@@ -18,11 +18,7 @@ requestForm.addEventListener('submit', async (e) => {
   requestBtn.textContent = 'Sending...';
 
   try {
-    const response = await fetch(`${API_URL}/api/password-reset/request`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    });
+    const response = await sendJSON('/api/password-reset/request', 'POST', { email });
 
     const data = await response.json();
 
@@ -53,11 +49,7 @@ verifyForm.addEventListener('submit', async (e) => {
   verifyBtn.textContent = 'Resetting...';
 
   try {
-    const response = await fetch(`${API_URL}/api/password-reset/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, new_password: newPassword })
-    });
+    const response = await sendJSON('/api/password-reset/verify', 'POST', { token, new_password: newPassword });
 
     const data = await response.json();
 
