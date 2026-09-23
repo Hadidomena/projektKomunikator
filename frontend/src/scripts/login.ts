@@ -1,4 +1,4 @@
-import { API_URL, messageBox } from '../lib/api';
+import { messageBox, sendJSON } from '../lib/api';
 import { base64ToArrayBuffer, arrayBufferToBase64, derivePasswordKey } from '../lib/crypto';
 
 const loginForm = document.getElementById('loginForm') as HTMLFormElement;
@@ -66,17 +66,7 @@ loginForm.addEventListener('submit', async (e) => {
   loginBtn.textContent = 'Logging in...';
   
   try {
-    const response = await fetch(`${API_URL}/api/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        email, 
-        password,
-        website,
-        phone,
-        middle_name: middleName
-      })
-    });
+    const response = await sendJSON('/api/login', 'POST', { email, password, website, phone, middle_name: middleName });
 
     const data = await response.json();
 
@@ -119,15 +109,7 @@ verifyTotpBtn.addEventListener('click', async () => {
     const email = (document.getElementById('email') as HTMLInputElement).value;
     const password = (document.getElementById('password') as HTMLInputElement).value;
 
-    const response = await fetch(`${API_URL}/api/2fa/validate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email,
-        password,
-        totp_code: totpCode
-      })
-    });
+    const response = await sendJSON('/api/2fa/validate', 'POST', { email, password, totp_code: totpCode });
 
     const data = await response.json();
 

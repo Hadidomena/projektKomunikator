@@ -1,4 +1,4 @@
-import { apiFetch, requireLogin, fetchCSRFToken as apiFetchCSRFToken, showMessage as setMessage } from '../lib/api';
+import { apiFetch, requireLogin, sendJSON, fetchCSRFToken as apiFetchCSRFToken, showMessage as setMessage } from '../lib/api';
 import { escapeHtml } from '../lib/dom';
 
 requireLogin();
@@ -56,14 +56,7 @@ document.getElementById('enable2faBtn')?.addEventListener('click', async () => {
   }
 
   try {
-    const response = await apiFetch('/api/2fa/setup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        csrf_token: csrfToken,
-        password: password
-      })
-    });
+    const response = await sendJSON('/api/2fa/setup', 'POST', { csrf_token: csrfToken, password });
 
     const data = await response.json();
 
@@ -75,18 +68,18 @@ document.getElementById('enable2faBtn')?.addEventListener('click', async () => {
         // Display the secret locally - no third-party QR service (would leak the secret)
         const otpauthUrl = data.qr_code || '';
         qrContainer.innerHTML = `
-          <div style="text-align: center; padding: 20px; background: white; border-radius: 10px;">
-            <p style="color: #666; margin-bottom: 10px; font-size: 13px;">Enter this secret manually in your authenticator app:</p>
+          <div style="text-align: center; padding: 20px; background: var(--surface); border-radius: 10px;">
+            <p style="color: var(--text-muted); margin-bottom: 10px; font-size: 13px;">Enter this secret manually in your authenticator app:</p>
             <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 15px;">
-              <code style="background: #f0f0f0; padding: 10px 15px; border-radius: 5px; font-size: 16px; letter-spacing: 2px; font-weight: bold;">${escapeHtml(data.secret)}</code>
+              <code style="background: var(--surface-code); padding: 10px 15px; border-radius: 5px; font-size: 16px; letter-spacing: 2px; font-weight: bold;">${escapeHtml(data.secret)}</code>
               <button type="button" id="copySecretBtn" style="padding: 8px 12px; font-size: 12px;">Copy</button>
             </div>
-            <p style="color: #666; margin-bottom: 5px; font-size: 12px;">Or copy the otpauth:// link:</p>
+            <p style="color: var(--text-muted); margin-bottom: 5px; font-size: 12px;">Or copy the otpauth:// link:</p>
             <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
-              <code style="word-break: break-all; background: #f0f0f0; padding: 8px; border-radius: 5px; font-size: 10px; max-width: 90%;">${escapeHtml(otpauthUrl)}</code>
+              <code style="word-break: break-all; background: var(--surface-code); padding: 8px; border-radius: 5px; font-size: 10px; max-width: 90%;">${escapeHtml(otpauthUrl)}</code>
               <button type="button" id="copyUriBtn" style="padding: 8px 12px; font-size: 12px;">Copy</button>
             </div>
-            <p style="margin-top: 12px; font-size: 11px; color: #999;">Your secret never leaves your browser or our server (encrypted at rest).</p>
+            <p style="margin-top: 12px; font-size: 11px; color: var(--text-subtle);">Your secret never leaves your browser or our server (encrypted at rest).</p>
           </div>
         `;
 
@@ -128,11 +121,7 @@ document.getElementById('verify2faBtn')?.addEventListener('click', async () => {
   }
 
   try {
-    const response = await apiFetch('/api/2fa/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ totp_code: code, csrf_token: csrfToken })
-    });
+    const response = await sendJSON('/api/2fa/verify', 'POST', { totp_code: code, csrf_token: csrfToken });
 
     const data = await response.json();
 
@@ -157,11 +146,7 @@ document.getElementById('disable2faBtn')?.addEventListener('click', async () => 
   }
 
   try {
-    const response = await apiFetch('/api/2fa/disable', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csrf_token: csrfToken, totp_code: code })
-    });
+    const response = await sendJSON('/api/2fa/disable', 'POST', { csrf_token: csrfToken, totp_code: code });
 
     const data = await response.json();
 
@@ -187,7 +172,7 @@ async function loadLoginHistory() {
     if (!container) return;
 
     if (history.length === 0) {
-      container.innerHTML = '<p style="color: #999;">No login history</p>';
+      container.innerHTML = '<p style="color: var(--text-subtle);">No login history</p>';
       return;
     }
 
@@ -230,7 +215,7 @@ async function loadHoneypotStats() {
   } catch (error) {
     const statsContainer = document.getElementById('honeypotStats');
     if (statsContainer) {
-      statsContainer.innerHTML = '<p style="color: #999;">Stats unavailable</p>';
+          statsContainer.innerHTML = '<p style="color: var(--text-subtle);">Stats unavailable</p>';
     }
   }
 }

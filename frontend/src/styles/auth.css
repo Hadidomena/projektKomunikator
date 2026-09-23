@@ -1,18 +1,11 @@
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-.container { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); width: 100%; max-width: 400px; }
-h1 { color: #333; text-align: center; font-size: 28px; }
+body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg-gradient); }
+.container { padding: 40px; width: 100%; max-width: 400px; box-shadow: var(--shadow-lg); }
+h1 { text-align: center; font-size: 28px; }
 .form-group { margin-bottom: 20px; }
-label { display: block; margin-bottom: 5px; color: #555; font-weight: 500; }
-input[type="email"], input[type="password"], input[type="text"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; transition: border-color 0.3s; }
-input:focus { outline: none; border-color: #667eea; }
-button { width: 100%; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.2s; }
+button { width: 100%; padding: 12px; background: var(--accent-gradient); color: var(--text-on-accent); border: none; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.2s; }
 button:hover { transform: translateY(-2px); }
 button:disabled { opacity: 0.6; cursor: not-allowed; }
-.message { margin-top: 15px; padding: 10px; border-radius: 5px; text-align: center; font-size: 14px; }
-.message.error { background: #fee; color: #c33; border: 1px solid #fcc; }
-.message.success { background: #efe; color: #3c3; border: 1px solid #cfc; }
 .links { margin-top: 20px; text-align: center; }
-.links a { color: #667eea; text-decoration: none; font-size: 14px; }
+.links a { color: var(--accent); text-decoration: none; font-size: 14px; }
 .links a:hover { text-decoration: underline; }
 .hp-field { position: absolute; left: -9999px; opacity: 0; height: 0; width: 0; z-index: -1; }

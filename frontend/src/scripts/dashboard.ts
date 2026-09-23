@@ -1,4 +1,4 @@
-import { apiFetch, getEmail, requireLogin, fetchCSRFToken } from '../lib/api';
+import { apiFetch, getEmail, requireLogin, sendJSON, fetchCSRFToken } from '../lib/api';
 import { base64ToArrayBuffer } from '../lib/crypto';
 import { escapeHtml } from '../lib/dom';
 import { E2EE } from '../lib/e2ee';
@@ -12,6 +12,10 @@ let csrfToken = '';
 
 let myFingerprint: string | null = null;
 let totalPages = 1;
+
+function decryptionKey(msg: any): string {
+  return currentTab === 'inbox' ? (msg.dh_public_key || '') : (msg.receiver_public_key || '');
+}
 
 function renderMarkdown(content: string): string {
   try {
@@ -222,16 +226,12 @@ document.getElementById('composeForm')!.addEventListener('submit', async (e) => 
 
     console.log('Sending message with', attachments.length, 'attachments, encrypted:', encrypted);
 
-    const response = await apiFetch('/api/messages/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        receiver_email: receiverEmail,
-        content: finalContent,
-        csrf_token: csrfToken,
-        dh_public_key: senderPublicKey,
-        receiver_public_key: receiverPublicKeyForMsg
-      })
+    const response = await sendJSON('/api/messages/send', 'POST', {
+      receiver_email: receiverEmail,
+      content: finalContent,
+      csrf_token: csrfToken,
+      dh_public_key: senderPublicKey,
+      receiver_public_key: receiverPublicKeyForMsg
     });
 
     if (response.ok) {
@@ -328,9 +328,7 @@ async function buildMessageItem(msg: any): Promise<HTMLElement> {
   let preview = '[Encrypted message]';
   let isEncrypted = false;
   try {
-    const keyForDecryption = currentTab === 'inbox'
-      ? (msg.dh_public_key || '')
-      : (msg.receiver_public_key || '');
+    const keyForDecryption = decryptionKey(msg);
     const parsed = await e2ee.parseMessageContent(msg.content, keyForDecryption);
     preview = parsed.content.length > 100 ? parsed.content.substring(0, 100) + '...' : parsed.content;
     isEncrypted = parsed.encrypted;
@@ -361,7 +359,7 @@ function buildPaginationNav(page: number): HTMLElement {
 
   const pageInfo = document.createElement('span');
   pageInfo.textContent = `Page ${page} of ${totalPages}`;
-  pageInfo.style.cssText = 'font-size: 14px; color: #666;';
+  pageInfo.style.cssText = 'font-size: 14px; color: var(--text-muted);';
 
   const nextBtn = document.createElement('button');
   nextBtn.textContent = 'Next →';
@@ -392,9 +390,7 @@ async function openMessage(messageId: number) {
       markMessageAsRead(messageId);
     }
 
-    const keyForDecryption = currentTab === 'inbox'
-      ? (msg.dh_public_key || '')
-      : (msg.receiver_public_key || '');
+    const keyForDecryption = decryptionKey(msg);
 
     const parsedContent = await e2ee.parseMessageContent(msg.content, keyForDecryption);
     console.log('Parsed content:', {
@@ -431,12 +427,12 @@ async function openMessage(messageId: number) {
 
     detail.innerHTML = `
       <div class="message-full">
-        <div class="from">${escapeHtml(currentTab === 'inbox' ? 'From' : 'To')}: ${escapeHtml(currentTab === 'inbox' ? msg.sender_email : msg.receiver_email)} ${isEncrypted ? '<span style="color: #28a745;">🔒 End-to-End Encrypted</span>' : ''}</div>
+        <div class="from">${escapeHtml(currentTab === 'inbox' ? 'From' : 'To')}: ${escapeHtml(currentTab === 'inbox' ? msg.sender_email : msg.receiver_email)} ${isEncrypted ? '<span style="color: var(--success-solid);">🔒 End-to-End Encrypted</span>' : ''}</div>
         <div class="date">${escapeHtml(new Date(msg.created_at).toLocaleString())}</div>
         <div class="content"></div>
         ${attachmentsHtml}
-        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee;">
-          <button class="download-btn" style="background: #dc3545;" onclick="deleteMessage(${msg.id})">
+        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border-subtle);">
+          <button class="download-btn" style="background: var(--danger-solid);" onclick="deleteMessage(${msg.id})">
             🗑️ Delete Message
           </button>
         </div>
@@ -484,11 +480,7 @@ async function openMessage(messageId: number) {
   if (!confirm('Are you sure you want to delete this message?')) return;
 
   try {
-    const response = await apiFetch('/api/messages/delete', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message_id: messageId })
-    });
+    const response = await sendJSON('/api/messages/delete', 'DELETE', { message_id: messageId });
 
     if (response.ok) {
       document.getElementById('messageModal')!.classList.remove('active');
@@ -506,11 +498,7 @@ async function openMessage(messageId: number) {
 
 async function markMessageAsRead(messageId: number) {
   try {
-    const response = await apiFetch('/api/messages/mark-read', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message_id: messageId })
-    });
+    const response = await sendJSON('/api/messages/mark-read', 'PUT', { message_id: messageId });
 
     if (response.ok) {
       const messageItem = document.querySelector(`[data-message-id="${messageId}"]`);
@@ -569,7 +557,7 @@ document.getElementById('verifyFingerprintBtn')?.addEventListener('click', async
     if (response.ok) {
       const data = await response.json();
       const formatted = data.fingerprint.match(/.{1,4}/g)?.join(' ') || data.fingerprint;
-      info.innerHTML = `🔒 Recipient's fingerprint: <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px;">${formatted}</code>`;
+      info.innerHTML = `🔒 Recipient's fingerprint: <code style="background: var(--surface-code); padding: 2px 6px; border-radius: 3px; font-size: 11px;">${formatted}</code>`;
       info.style.display = 'block';
     } else {
       info.textContent = '⚠️ Could not fetch fingerprint - user may not have E2EE configured';

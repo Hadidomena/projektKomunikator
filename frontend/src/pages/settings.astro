@@ -3,34 +3,28 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import '../styles/app.css';
 ---
 <style>
-    .back-btn { background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; }
+    .back-btn { background: rgba(255,255,255,0.2); color: var(--header-text); border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; }
     .back-btn:hover { background: rgba(255,255,255,0.3); }
     .container { max-width: 1000px; margin: 30px auto; padding: 0 20px; }
-    .section { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
-    .section h2 { margin-bottom: 15px; color: #333; font-size: 20px; }
-    .section p { color: #666; margin-bottom: 15px; font-size: 14px; }
+    .section { margin-bottom: 20px; }
+    .section h2 { margin-bottom: 15px; font-size: 20px; }
+    .section p { color: var(--text-muted); margin-bottom: 15px; font-size: 14px; }
     .form-group { margin-bottom: 15px; }
-    .form-group label { display: block; margin-bottom: 5px; color: #555; font-weight: 500; font-size: 14px; }
-    .form-group input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
-    button { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: 500; }
+    button { background: var(--accent-gradient); color: var(--text-on-accent); border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: 500; }
     button:hover { opacity: 0.9; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    button.danger { background: linear-gradient(135deg, #f56565 0%, #c53030 100%); }
+    button.danger { background: var(--danger-gradient); }
     .qr-code { text-align: center; margin: 20px 0; }
-    .message { margin-top: 15px; padding: 10px; border-radius: 5px; font-size: 14px; display: none; }
-    .message.error { background: #fee; color: #c33; border: 1px solid #fcc; display: block; }
-    .message.success { background: #efe; color: #3c3; border: 1px solid #cfc; display: block; }
-    .hidden { display: none; }
     .login-history { margin-top: 15px; max-height: 400px; overflow-y: auto; }
-    .login-item { padding: 10px; background: #f8f9fa; border-radius: 5px; margin-bottom: 8px; font-size: 13px; }
-    .login-item .ip { font-weight: 600; color: #667eea; }
-    .login-item .date { color: #999; font-size: 12px; }
-    .login-item .device { color: #666; font-size: 12px; margin-top: 3px; }
-    .login-item .new-device { display: inline-block; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; margin-top: 5px; }
+    .login-item { padding: 10px; background: var(--surface-muted); border-radius: 5px; margin-bottom: 8px; font-size: 13px; }
+    .login-item .ip { font-weight: 600; color: var(--accent); }
+    .login-item .date { color: var(--text-subtle); font-size: 12px; }
+    .login-item .device { color: var(--text-muted); font-size: 12px; margin-top: 3px; }
+    .login-item .new-device { display: inline-block; background: var(--warning-bg); color: var(--warning-text); padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; margin-top: 5px; }
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px; }
-    .stat-card { background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center; }
-    .stat-value { font-size: 32px; font-weight: bold; color: #667eea; }
-    .stat-label { font-size: 12px; color: #666; margin-top: 5px; text-transform: uppercase; }
+    .stat-card { background: var(--surface-muted); padding: 15px; border-radius: 5px; text-align: center; }
+    .stat-value { font-size: 32px; font-weight: bold; color: var(--accent); }
+    .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 5px; text-transform: uppercase; }
 </style>
 
 <BaseLayout title="Settings - Communicator">
@@ -40,7 +34,7 @@ import '../styles/app.css';
   </div>
 
   <div class="container">
-    <div class="section">
+    <div class="section card">
       <h2>🔐 Two-Factor Authentication (2FA)</h2>
       <p>Enhance your account security with TOTP-based 2FA</p>
 
@@ -67,19 +61,19 @@ import '../styles/app.css';
       </div>
     </div>
 
-    <div class="section">
+    <div class="section card">
       <h2>📊 Login History</h2>
       <p>Recent login attempts from your account</p>
       <div class="login-history" id="loginHistory">
-        <p style="color: #999;">Loading...</p>
+        <p style="color: var(--text-subtle);">Loading...</p>
       </div>
     </div>
 
-    <div class="section">
+    <div class="section card">
       <h2>🍯 Security Stats</h2>
       <p>Bot detection statistics</p>
       <div class="stats" id="honeypotStats">
-        <p style="color: #999;">Loading...</p>
+        <p style="color: var(--text-subtle);">Loading...</p>
       </div>
     </div>
   </div>

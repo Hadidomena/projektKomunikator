@@ -1,3 +1,4 @@
+import { sendJSON } from '../lib/api';
 import { arrayBufferToBase64, derivePasswordKey } from '../lib/crypto';
 
 let currentStrength: any = null;
@@ -30,11 +31,7 @@ async function checkPasswordStrength(password: string) {
   }
 
   try {
-    const response = await fetch('/api/check-password-strength', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
-    });
+    const response = await sendJSON('/api/check-password-strength', 'POST', { password });
 
     if (response.ok) {
       const strength = await response.json();
@@ -132,17 +129,13 @@ passwordInput.addEventListener('input', (e) => {
     
     submitBtn.textContent = 'Registering...';
 
-    const response = await fetch('/api/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        username, 
-        email, 
-        password, 
-        website,
-        e2ee_public_key: publicKeyB64,
-        e2ee_private_key_encrypted: privateKeyEncryptedB64
-      }),
+    const response = await sendJSON('/api/register', 'POST', {
+      username,
+      email,
+      password,
+      website,
+      e2ee_public_key: publicKeyB64,
+      e2ee_private_key_encrypted: privateKeyEncryptedB64
     });
 
     if (response.ok) {

@@ -7,6 +7,10 @@ interface ParsedMessage {
   encrypted: boolean;
 }
 
+function lockedMessage(content: string): ParsedMessage {
+  return { content, attachments: [], encrypted: true };
+}
+
 export class E2EE {
   ready = false;
   private pepper = '';
@@ -127,19 +131,11 @@ export class E2EE {
 
       if (parsed.encrypted && parsed.ciphertext && parsed.nonce) {
         if (!otherPartyPublicKey) {
-          return {
-            content: '[🔒 Wiadomość zaszyfrowana - brak klucza do odszyfrowania]',
-            attachments: [],
-            encrypted: true
-          };
+          return lockedMessage('[🔒 Wiadomość zaszyfrowana - brak klucza do odszyfrowania]');
         }
 
         if (!this.ready) {
-          return {
-            content: '[🔒 Wiadomość zaszyfrowana - odblokuj E2EE aby odszyfrować]',
-            attachments: [],
-            encrypted: true
-          };
+          return lockedMessage('[🔒 Wiadomość zaszyfrowana - odblokuj E2EE aby odszyfrować]');
         }
 
         try {
@@ -152,11 +148,7 @@ export class E2EE {
           };
         } catch (decryptError) {
           console.error('Failed to decrypt message:', decryptError);
-          return {
-            content: '[🔒 Wiadomość zaszyfrowana - nie można odszyfrować]',
-            attachments: [],
-            encrypted: true
-          };
+          return lockedMessage('[🔒 Wiadomość zaszyfrowana - nie można odszyfrować]');
         }
       }
 

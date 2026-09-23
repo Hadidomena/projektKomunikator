@@ -1,4 +1,7 @@
 ---
+import '../styles/theme.css';
+import '../styles/base.css';
+
 interface Props {
   title: string;
 }
@@ -9,9 +12,21 @@ const { title } = Astro.props;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width" />
     <title>{title}</title>
+    <script is:inline>
+      (() => {
+        const stored = localStorage.getItem('theme');
+        const dark = stored ? stored === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      })();
+    </script>
     <slot name="head" />
   </head>
   <body>
     <slot />
+    <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle dark mode">
+      <span class="icon-light">🌙</span>
+      <span class="icon-dark">☀️</span>
+    </button>
+    <script>import '../scripts/theme';</script>
   </body>
 </html>
